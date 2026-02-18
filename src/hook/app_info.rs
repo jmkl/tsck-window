@@ -9,7 +9,7 @@ pub struct SizeRatio {
     pub width: f32,
     pub height: f32,
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Copy, PartialEq, Clone)]
 pub struct AppPosition {
     pub x: i32,
     pub y: i32,
