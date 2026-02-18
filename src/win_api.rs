@@ -220,6 +220,16 @@ pub fn maximize_window(hwnd: HWND) {
         }
     }
 }
+
+pub fn __bring_to_front(hwnd: HWND) {
+    unsafe {
+        if IsWindow(Some(hwnd)) == FALSE {
+            return;
+        }
+        ShowWindow(hwnd, SW_RESTORE);
+        SetForegroundWindow(hwnd);
+    }
+}
 pub fn bring_to_front(hwnd: HWND) {
     unsafe {
         if IsWindow(Some(hwnd)) == FALSE {

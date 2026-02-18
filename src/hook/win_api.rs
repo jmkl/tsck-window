@@ -1,4 +1,5 @@
 #![allow(unused)]
+use crate::hook::api::Hwnd;
 use crate::hook::app_info::{AppPosition, AppSize};
 use crate::hook::border::BorderManager;
 use crate::hook::win_event::WindowEvent;
@@ -161,10 +162,10 @@ extern "system" fn win_event_hook(
         if IsWindowVisible(hwnd).as_bool() == false {
             return;
         }
-        // let style = WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32);
-        // if !style.contains(WS_OVERLAPPEDWINDOW) {
-        //     return;
-        // }
+        let style = WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32);
+        if !style.contains(WS_OVERLAPPEDWINDOW) {
+            return;
+        }
         let ex_style = WINDOW_EX_STYLE(GetWindowLongW(hwnd, GWL_EXSTYLE) as u32);
         if ex_style.contains(WS_EX_TOOLWINDOW) {
             return;
@@ -412,6 +413,16 @@ pub(crate) fn set_app_size_position(
         )
     };
 }
+pub(crate) fn get_dwm_props(hwnd: HWND, width: i32, height: i32) -> Option<(i32, i32)> {
+    if unsafe { IsWindow(Some(hwnd)) } == FALSE {
+        return None;
+    }
+    let rect = get_dwm_rect(hwnd, 0);
+    let w = (width - APP_WINDOW_PADDING * 2).max(0);
+    let h = (height - APP_WINDOW_PADDING * 2).max(0);
+    Some((w, h))
+}
+
 pub(crate) fn set_border_size_position(
     hwnd: HWND,
     parent_hwnd: HWND,
@@ -463,4 +474,36 @@ pub(crate) fn set_badge_position(
             SWP_NOZORDER,
         )
     };
+}
+
+pub(crate) fn bring_to_front(hwnd: HWND) {
+    unsafe {
+        if IsWindow(Some(hwnd)) == FALSE {
+            return;
+        }
+        if IsIconic(hwnd) == TRUE {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        if SetForegroundWindow(hwnd).as_bool() == TRUE {
+            return;
+        }
+        force_bring_to_front(hwnd);
+    }
+}
+
+fn force_bring_to_front(hwnd: HWND) {
+    unsafe {
+        let hwnd_target: HWND = hwnd;
+        let hwnd_foreground = GetForegroundWindow();
+
+        let current_thread = GetCurrentThreadId();
+        let fg_thread = GetWindowThreadProcessId(hwnd_foreground, None);
+
+        AttachThreadInput(current_thread, fg_thread, true);
+
+        SetForegroundWindow(hwnd_target);
+        SetFocus(Some(hwnd_target));
+        BringWindowToTop(hwnd_target);
+        AttachThreadInput(current_thread, fg_thread, false);
+    }
 }
