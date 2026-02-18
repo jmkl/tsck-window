@@ -44,6 +44,7 @@ const WM_UPDATE_RECT_SIZE: u32 = WM_USER + 6;
 pub struct HwndItem {
     pub hwnd: Hwnd,
     pub monitor: usize,
+    pub parked_position: Option<i32>,
 }
 #[derive(Clone, Debug)]
 pub struct Workspace {

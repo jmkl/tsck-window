@@ -168,27 +168,7 @@ fn spawn_command_interface(handler: ArcMutWHookHandler) {
                                         });
                                     });
                                 }
-                                "move" => {
-                                    let mut parse = || -> anyhow::Result<(isize, usize)> {
-                                        let hwnd = iter
-                                            .next()
-                                            .ok_or(anyhow::anyhow!("Error"))?
-                                            .parse::<isize>()?;
-                                        let workspace = iter
-                                            .next()
-                                            .ok_or(anyhow::anyhow!("Error"))?
-                                            .parse::<usize>()?;
 
-                                        Ok((hwnd, workspace))
-                                    };
-
-                                    _ = parse().and_then(|(hwnd, workspace)| {
-                                        with_handler!(handler, |hd| {
-                                            hd.move_app_to_workspace(hwnd, workspace);
-                                        });
-                                        Ok(())
-                                    });
-                                }
                                 "reset" => {
                                     with_handler!(handler, |hd| {
                                         _ = hd.reset_y_position();
@@ -211,7 +191,7 @@ fn spawn_command_interface(handler: ArcMutWHookHandler) {
                 "list" => {
                     with_handler!(handler, |hd| {
                         for (_, ai) in hd.get_all_apps() {
-                            println!("{:<20}{}", ai.exe, ai.hwnd);
+                            println!("{:<20}{:<10} {}", ai.exe, ai.hwnd, ai.position.y);
                         }
                     });
                 }

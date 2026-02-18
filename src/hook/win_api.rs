@@ -364,23 +364,13 @@ pub(crate) fn set_app_size(hwnd: HWND, width: i32, height: i32) {
     if unsafe { IsWindow(Some(hwnd)) } == FALSE {
         return;
     }
-    unsafe {
-        SetWindowPos(
-            hwnd,
-            Some(HWND_TOP),
-            0,
-            0,
-            width,
-            height,
-            SWP_NOMOVE | SWP_NOZORDER,
-        )
-    };
+    unsafe { SetWindowPos(hwnd, None, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER) };
 }
 pub(crate) fn set_app_position(hwnd: HWND, x: i32, y: i32) {
     if unsafe { IsWindow(Some(hwnd)) } == FALSE {
         return;
     }
-    unsafe { SetWindowPos(hwnd, Some(HWND_TOP), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
+    unsafe { SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
 }
 pub(crate) fn set_app_size_position(
     hwnd: HWND,
@@ -479,16 +469,20 @@ pub(crate) fn set_badge_position(
 pub(crate) fn bring_to_front(hwnd: HWND) {
     unsafe {
         if IsWindow(Some(hwnd)) == FALSE {
+            eprintln!("This is not a window");
             return;
         }
         if IsIconic(hwnd) == TRUE {
+            eprintln!("ICONIC, RESTORE");
             ShowWindow(hwnd, SW_RESTORE);
         }
-        if SetForegroundWindow(hwnd).as_bool() == TRUE {
-            return;
-        }
+        let res = SetForegroundWindow(hwnd);
+        eprintln!("SET FORGORUND {:?} {}", hwnd.0, res.as_bool());
         force_bring_to_front(hwnd);
     }
+}
+pub(crate) fn get_app_position(hwnd: HWND) -> AppPosition {
+    get_rect(hwnd).1
 }
 
 fn force_bring_to_front(hwnd: HWND) {

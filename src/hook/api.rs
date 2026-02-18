@@ -2,6 +2,7 @@ use crate::{
     hook::{
         self, animation,
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
+        app_window::AppWindow,
         border::{HwndItem, Workspace},
         win_api::{self, BORDER_MANAGER, MonitorInfo},
         win_event::WindowEvent,
@@ -11,10 +12,10 @@ use crate::{
 
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
+use windows::Win32::Foundation::HWND;
 
 const SIZE_FACTOR: &[f32] = &[1.0, 0.75, 0.66, 0.5, 0.33, 0.25];
-const WORKSPACE_MAGIC_NUMBER: i32 = 2000;
-const MONITOR_INDEX: usize = 0; // Need to separate this later. for monitor 0 and another monitor if any
+const MONITOR_INDEX: usize = 0;
 
 pub type MonitorWidth = i32;
 pub type MonitorHeight = i32;
@@ -43,6 +44,7 @@ pub struct WindowHookHandler {
     active_app_index: usize,
     blacklist: Vec<String>,
     workspaces: Vec<Workspace>,
+    border_hwnd: Option<isize>,
 }
 
 impl WindowHookHandler {
@@ -56,6 +58,7 @@ impl WindowHookHandler {
             width_selector_index: 0,
             app_position: 0,
             active_app_index: 0,
+            border_hwnd: None,
             workspaces: workspaces
                 .iter()
                 .enumerate()
@@ -74,6 +77,9 @@ impl WindowHookHandler {
     fn update_border(&mut self, hwnd: Hwnd) {
         let rect = win_api::get_dwm_rect(hwnd!(hwnd), 0);
         let border = BORDER_MANAGER.lock();
+        if self.border_hwnd.is_none() {
+            self.border_hwnd = Some(border.hwnd().0 as isize);
+        }
         for (idx, ws) in self.workspaces.iter_mut().enumerate() {
             if self.current_active_workspace == idx {
                 ws.active = true;
@@ -83,33 +89,39 @@ impl WindowHookHandler {
         }
         _ = border.update_workspaces(self.workspaces.clone());
         if let Some((w, h)) = win_api::get_dwm_props(hwnd!(hwnd), rect.w, rect.h) {
-            println!("UPDATE BORDER {w} x {h} {:?}", &rect);
             _ = border.update_rect_position(rect.l, rect.t);
             _ = border.update_rect_size(w, h);
         }
     }
 
+    fn filter_app(&mut self, app: &AppInfo) -> bool {
+        let is_blacklist = self.blacklist.contains(&app.exe);
+        let mut total_widht = 0;
+        for monitor in self.monitors.iter() {
+            total_widht += monitor.width;
+        }
+        let windows = app.exe.contains("explorer.exe") && app.size.width == total_widht;
+        is_blacklist || windows
+    }
+
     pub fn update_apps(&mut self, app: AppInfo, event: WindowEvent) {
-        if self.blacklist.contains(&app.exe) {
+        if self.filter_app(&app) {
             return;
         }
-
-        if let Some(idx) = win_api::get_monitor_index(hwnd!(app.hwnd), &self.monitors) {
-            match event {
-                WindowEvent::ObjectCreate => {
-                    println!("ADDING APP {} to WORKSPACE MONITOR {} ", &app.exe, idx);
-                    self.app_to_workspace(self.current_active_workspace, app.hwnd, idx);
+        println!("[UPDATING] \x1b[31m{}\x1b[0m", app.exe);
+        match event {
+            WindowEvent::ObjectCreate => {
+                if let Some(idx) = win_api::get_monitor_index(hwnd!(app.hwnd), &self.monitors) {
+                    self.assign_app_to_workspace(self.current_active_workspace, app.hwnd, idx);
                 }
-                WindowEvent::ObjectLocationchange => {
-                    if app.hwnd == self.current_active_app_hwnd {
-                        self.update_border(app.hwnd);
-                    }
-                }
-                WindowEvent::SystemForeground => {
-                    self.update_border(app.hwnd);
-                }
-                _ => {}
             }
+            WindowEvent::ObjectLocationchange | WindowEvent::SystemForeground => {
+                if app.hwnd == self.current_active_app_hwnd {
+                    self.update_border(app.hwnd);
+                    self.update_app_parking_position(app.hwnd, app.position.y);
+                }
+            }
+            _ => {}
         }
 
         if let Some(old_app) = self.apps.get_mut(&app.hwnd) {
@@ -130,7 +142,6 @@ impl WindowHookHandler {
     pub fn update_monitors(&mut self, monitors: Vec<MonitorInfo>) {
         self.monitors.clear();
         self.monitors = monitors;
-        println!("{:#?}", self.monitors);
     }
     pub fn get_all_apps(&self) -> &HashMap<isize, AppInfo> {
         &self.apps
@@ -210,8 +221,9 @@ impl WindowHookHandler {
         // self.width_selector_index = 0;
         // self.height_selector_index = 0;
     }
+
     pub fn cycle_active_app(&mut self, direction: &str) -> anyhow::Result<()> {
-        let hwnd_item = {
+        let mut hwnd_item = {
             let ws = self
                 .workspaces
                 .get(self.current_active_workspace)
@@ -237,13 +249,26 @@ impl WindowHookHandler {
         };
 
         if let Some(hwnd) = hwnd_item.get(self.active_app_index) {
-            let app = self
-                .apps
-                .get(&hwnd.hwnd)
-                .ok_or(anyhow::anyhow!("App not found"))?;
-            println!("ACTIVE APP: \x1b[33m{}", app.exe);
-            win_api::bring_to_front(hwnd!(app.hwnd));
-            self.current_active_app_hwnd = hwnd.hwnd;
+            if let Some(app) = self.apps.get(&hwnd.hwnd) {
+                println!(
+                    "ACTIVE APP: \x1b[33m{}\x1b[0m [{:?}]",
+                    app.exe,
+                    (
+                        app.size.width,
+                        app.size.height,
+                        app.position.x,
+                        app.position.y
+                    )
+                );
+                win_api::bring_to_front(hwnd!(app.hwnd));
+                self.current_active_app_hwnd = app.hwnd;
+                self.update_border(app.hwnd);
+            } else {
+                hwnd_item.remove(self.active_app_index);
+                if self.active_app_index >= hwnd_item.len() && !hwnd_item.is_empty() {
+                    self.active_app_index = hwnd_item.len() - 1;
+                }
+            }
         }
 
         Ok(())
@@ -389,9 +414,13 @@ impl WindowHookHandler {
         self.update_border(app.hwnd);
         Some(())
     }
-    fn app_to_workspace(&mut self, workspace_index: usize, hwnd: isize, monitor: usize) {
+    fn assign_app_to_workspace(&mut self, workspace_index: usize, hwnd: isize, monitor: usize) {
         if self.workspaces.is_empty() {
-            let hwnds = vec![HwndItem { hwnd, monitor }];
+            let hwnds = vec![HwndItem {
+                hwnd,
+                monitor,
+                parked_position: None,
+            }];
             self.workspaces.push(Workspace {
                 text: "Main".to_string(),
                 active: true,
@@ -404,11 +433,17 @@ impl WindowHookHandler {
                 }
             }
             if let Some(ws) = self.workspaces.get_mut(workspace_index) {
-                ws.hwnds.push(HwndItem { hwnd, monitor });
+                println!("UPDATING PARK POS");
+                ws.hwnds.push(HwndItem {
+                    hwnd,
+                    monitor,
+                    parked_position: None,
+                });
             }
         }
-        //update it
-        _ = self.update_app_position_in_workspace();
+        if self.apps.contains_key(&hwnd) {
+            _ = self.reorder_app_pos_in_workspace();
+        }
     }
     // this is convenien resetter if moving y position going to shit
     // in development stage
@@ -427,42 +462,87 @@ impl WindowHookHandler {
         }
         Ok(())
     }
-    fn update_app_position_in_workspace(&mut self) -> anyhow::Result<()> {
-        for (workspace_index, workspace) in self.workspaces.iter().enumerate() {
+    fn update_app_parking_position(&mut self, target: Hwnd, position: i32) {
+        if let Some(h) = self
+            .workspaces
+            .iter_mut()
+            .filter(|w| w.active)
+            .flat_map(|ws| ws.hwnds.iter_mut())
+            .find(|h| h.hwnd == target)
+        {
+            h.parked_position = Some(position);
+        }
+    }
+    fn reorder_app_pos_in_workspace(&mut self) -> anyhow::Result<()> {
+        println!("{}", "|+".repeat(20));
+
+        for (workspace_index, workspace) in self.workspaces.iter_mut().enumerate() {
             let is_active = self.current_active_workspace == workspace_index;
-
-            for hwnd in workspace.hwnds.iter() {
-                if hwnd.monitor == MONITOR_INDEX {
-                    let (_, appinfo) = self
-                        .apps
-                        .iter_mut()
-                        .find(|(aihwnd, _)| aihwnd == &&hwnd.hwnd)
-                        .ok_or(anyhow::anyhow!("cant find the app"))?;
-
-                    // Always read live position from Windows, never trust stale appinfo
-                    let live_pos = appinfo.position;
-
-                    if is_active {
-                        if live_pos.y >= WORKSPACE_MAGIC_NUMBER {
-                            win_api::set_app_position(
-                                hwnd!(appinfo.hwnd),
-                                live_pos.x,
-                                live_pos.y - WORKSPACE_MAGIC_NUMBER, // restore to real y
-                            );
-                        }
-                    } else {
-                        if live_pos.y < WORKSPACE_MAGIC_NUMBER {
-                            win_api::set_app_position(
-                                hwnd!(appinfo.hwnd),
-                                live_pos.x,
-                                live_pos.y + WORKSPACE_MAGIC_NUMBER, // push off-screen
-                            );
+            for hitem in workspace.hwnds.iter_mut() {
+                if hitem.monitor == MONITOR_INDEX {
+                    if let Some((_, appinfo)) = self.apps.iter().find(|(hw, _)| *hw == &hitem.hwnd)
+                    {
+                        if is_active {
+                            if let Some(parked_pos) = hitem.parked_position {
+                                println!(
+                                    "IS ACTIVE {} {} {}",
+                                    appinfo.exe, appinfo.position.y, parked_pos
+                                );
+                                win_api::set_app_position(
+                                    hwnd!(hitem.hwnd),
+                                    appinfo.position.x,
+                                    parked_pos,
+                                );
+                            } else {
+                                hitem.parked_position = Some(appinfo.position.y);
+                            }
+                        } else {
+                            if hitem.parked_position.is_some() {
+                                win_api::set_app_position(
+                                    hwnd!(hitem.hwnd),
+                                    appinfo.position.x,
+                                    -2000,
+                                );
+                            }
                         }
                     }
                 }
             }
         }
-        self.update_border(self.current_active_app_hwnd);
+
+        // for (workspace_index, workspace) in self.workspaces.iter().enumerate() {
+        //     let is_active = self.current_active_workspace == workspace_index;
+        //     println!("{}", "|+".repeat(20));
+        //     for hwnd in workspace.hwnds.iter() {
+        //         if hwnd.monitor == MONITOR_INDEX {
+        //             let (_, appinfo) = self
+        //                 .apps
+        //                 .iter_mut()
+        //                 .find(|(aihwnd, _)| aihwnd == &&hwnd.hwnd)
+        //                 .ok_or(anyhow::anyhow!("cant find the app"))?;
+
+        //             if is_active {
+        //                 match appinfo.temp_position {
+        //                     Some(temp) => {
+        //                         win_api::set_app_position(hwnd!(appinfo.hwnd), temp.x, temp.y);
+        //                     }
+        //                     None => {
+        //                         appinfo.temp_position = Some(appinfo.position);
+        //                     }
+        //                 }
+        //             } else {
+        //                 win_api::set_app_position(
+        //                     hwnd!(appinfo.hwnd),
+        //                     appinfo.position.x,
+        //                     appinfo.position.y + 10,
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
+        if self.current_active_app_hwnd > 0 {
+            self.update_border(self.current_active_app_hwnd);
+        }
         Ok(())
     }
 
@@ -495,7 +575,7 @@ impl WindowHookHandler {
             _ => {}
         }
 
-        if let Err(err) = self.update_app_position_in_workspace() {
+        if let Err(err) = self.reorder_app_pos_in_workspace() {
             eprintln!("update_app_position_in_workspace =>{err}");
         }
     }
@@ -511,16 +591,15 @@ impl WindowHookHandler {
             match workspace {
                 "Prev" => (self.current_active_workspace + count - 1) % count,
                 "Next" => (self.current_active_workspace + 1) % count,
-                _ => 0,
+                _ => anyhow::bail!("unknown workspace direction: {}", workspace),
             }
         };
-        self.app_to_workspace(workspace_index, active_hwnd, MONITOR_INDEX);
-
+        self.assign_app_to_workspace(workspace_index, active_hwnd, MONITOR_INDEX);
+        println!(
+            "Moving `{}` to workspace `{}` NOW {}",
+            app_name, workspace_index, self.current_active_workspace
+        );
         Ok(())
-    }
-
-    pub fn move_app_to_workspace(&mut self, hwnd: Hwnd, workspace: usize) {
-        self.app_to_workspace(workspace, hwnd, 0);
     }
 }
 
@@ -553,6 +632,14 @@ impl WindowHook {
         std::thread::spawn(move || {
             while let Ok((ev, app_window)) = crate::hook::win_api::channel_receiver().recv() {
                 match ev {
+                    WindowEvent::ObjectShow => {
+                        // App is being shown/unminimized - update info but don't reassign workspace
+                        if let Some(app_info) = app_window.get_app_info() {
+                            handler
+                                .lock()
+                                .update_apps(app_info, WindowEvent::ObjectShow);
+                        }
+                    }
                     WindowEvent::ObjectCreate => {
                         if let Some(app_info) = app_window.get_app_info() {
                             handler
@@ -586,7 +673,9 @@ impl WindowHook {
                     }
                     WindowEvent::SystemMovesizeend => {}
                     WindowEvent::SystemMinimizeend => {}
-                    _ => {}
+                    _ => {
+                        // println!("[#] {:?}", ev);
+                    }
                 }
             }
         });
