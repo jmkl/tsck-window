@@ -1,5 +1,5 @@
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use windows::{
     Win32::{
         Foundation::*,
@@ -24,7 +24,7 @@ use windows::{
     core::*,
 };
 
-use crate::hook::{api::Hwnd, app_info::AppPosition};
+use crate::hook::api::Hwnd;
 
 macro_rules! hwnd {
     ($self:ident) => {

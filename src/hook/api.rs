@@ -2,7 +2,6 @@ use crate::{
     hook::{
         self, animation,
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
-        app_window::AppWindow,
         border::{HwndItem, Workspace},
         win_api::{self, BORDER_MANAGER, MonitorInfo},
         win_event::WindowEvent,
@@ -12,7 +11,6 @@ use crate::{
 
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
-use windows::Win32::Foundation::HWND;
 
 const SIZE_FACTOR: &[f32] = &[1.0, 0.75, 0.66, 0.5, 0.33, 0.25];
 const MONITOR_INDEX: usize = 0;
@@ -108,7 +106,6 @@ impl WindowHookHandler {
         if self.filter_app(&app) {
             return;
         }
-        println!("[UPDATING] \x1b[31m{}\x1b[0m", app.exe);
         match event {
             WindowEvent::ObjectCreate => {
                 if let Some(idx) = win_api::get_monitor_index(hwnd!(app.hwnd), &self.monitors) {
@@ -212,9 +209,6 @@ impl WindowHookHandler {
         ))
     }
     pub fn get_next(&mut self) -> anyhow::Result<()> {
-        self.apps.iter().for_each(|(_, ai)| {
-            println!("{} {:?}", ai.exe, ai.position);
-        });
         Ok(())
     }
     pub fn reset_size_selector(&mut self) {
@@ -250,16 +244,6 @@ impl WindowHookHandler {
 
         if let Some(hwnd) = hwnd_item.get(self.active_app_index) {
             if let Some(app) = self.apps.get(&hwnd.hwnd) {
-                println!(
-                    "ACTIVE APP: \x1b[33m{}\x1b[0m [{:?}]",
-                    app.exe,
-                    (
-                        app.size.width,
-                        app.size.height,
-                        app.position.x,
-                        app.position.y
-                    )
-                );
                 win_api::bring_to_front(hwnd!(app.hwnd));
                 self.current_active_app_hwnd = app.hwnd;
                 self.update_border(app.hwnd);
@@ -290,7 +274,6 @@ impl WindowHookHandler {
                 .iter()
                 .position(|c| c == &app.size_ratio.width)?
         };
-        println!("C-Width before {}", &self.width_selector_index);
         match direction {
             "Prev" => {
                 self.width_selector_index =
@@ -306,7 +289,6 @@ impl WindowHookHandler {
             let idx = self.width_selector_index;
             let app = self.get_active_app()?;
             app.size_ratio.width = SIZE_FACTOR[idx];
-            println!("C-Width after {}", &self.width_selector_index);
         }
         Some(())
     }
@@ -433,7 +415,6 @@ impl WindowHookHandler {
                 }
             }
             if let Some(ws) = self.workspaces.get_mut(workspace_index) {
-                println!("UPDATING PARK POS");
                 ws.hwnds.push(HwndItem {
                     hwnd,
                     monitor,
@@ -474,8 +455,6 @@ impl WindowHookHandler {
         }
     }
     fn reorder_app_pos_in_workspace(&mut self) -> anyhow::Result<()> {
-        println!("{}", "|+".repeat(20));
-
         for (workspace_index, workspace) in self.workspaces.iter_mut().enumerate() {
             let is_active = self.current_active_workspace == workspace_index;
             for hitem in workspace.hwnds.iter_mut() {
@@ -484,10 +463,6 @@ impl WindowHookHandler {
                     {
                         if is_active {
                             if let Some(parked_pos) = hitem.parked_position {
-                                println!(
-                                    "IS ACTIVE {} {} {}",
-                                    appinfo.exe, appinfo.position.y, parked_pos
-                                );
                                 win_api::set_app_position(
                                     hwnd!(hitem.hwnd),
                                     appinfo.position.x,
@@ -510,58 +485,12 @@ impl WindowHookHandler {
             }
         }
 
-        // for (workspace_index, workspace) in self.workspaces.iter().enumerate() {
-        //     let is_active = self.current_active_workspace == workspace_index;
-        //     println!("{}", "|+".repeat(20));
-        //     for hwnd in workspace.hwnds.iter() {
-        //         if hwnd.monitor == MONITOR_INDEX {
-        //             let (_, appinfo) = self
-        //                 .apps
-        //                 .iter_mut()
-        //                 .find(|(aihwnd, _)| aihwnd == &&hwnd.hwnd)
-        //                 .ok_or(anyhow::anyhow!("cant find the app"))?;
-
-        //             if is_active {
-        //                 match appinfo.temp_position {
-        //                     Some(temp) => {
-        //                         win_api::set_app_position(hwnd!(appinfo.hwnd), temp.x, temp.y);
-        //                     }
-        //                     None => {
-        //                         appinfo.temp_position = Some(appinfo.position);
-        //                     }
-        //                 }
-        //             } else {
-        //                 win_api::set_app_position(
-        //                     hwnd!(appinfo.hwnd),
-        //                     appinfo.position.x,
-        //                     appinfo.position.y + 10,
-        //                 );
-        //             }
-        //         }
-        //     }
-        // }
         if self.current_active_app_hwnd > 0 {
             self.update_border(self.current_active_app_hwnd);
         }
         Ok(())
     }
 
-    /// to arrange apps in workspace firstly we need to initiate all
-    ///  the app onto the workspace 0.
-    ///  and after that we iterate all the workspace contents of hwnds
-    ///  again active_workspace
-    /// ```ignore
-    ///  # for (idx,workspace) in self.workspace.iter().enumerate(){
-    ///  #   if idx == self.active_workspace {
-    ///  #     it means we are in the correct workspace
-    ///  #     reset the app.y position for this hwnd
-    ///  by reset i mean need to calculate the y position if - 5000
-    ///   if y<= -5000 then we reset it by calculating the y size + 5000
-    ///     }else{
-    ///     we push em all to -5000 y position
-    ///     }
-    ///  }
-    /// ```
     pub fn activate_workspace(&mut self, workspace: &str) {
         let ws_count = self.workspaces.len();
         match workspace {
@@ -595,10 +524,6 @@ impl WindowHookHandler {
             }
         };
         self.assign_app_to_workspace(workspace_index, active_hwnd, MONITOR_INDEX);
-        println!(
-            "Moving `{}` to workspace `{}` NOW {}",
-            app_name, workspace_index, self.current_active_workspace
-        );
         Ok(())
     }
 }
