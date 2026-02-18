@@ -86,13 +86,16 @@ pub enum WindowEvent {
     UiaEventidStart,
     UiaPropidEnd,
     UiaPropidStart,
+
     Uknown,
+    Done,
 }
 impl FromStr for WindowEvent {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "EVENT_DONE" => Ok(Self::Done),
             "EVENT_AIA_END" => Ok(Self::AiaEnd),
             "EVENT_AIA_START" => Ok(Self::AiaStart),
             "EVENT_CONSOLE_CARET" => Ok(Self::ConsoleCaret),

@@ -2,6 +2,7 @@ use crate::{
     hook::{
         self, animation,
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
+        app_window::AppWindow,
         border::{HwndItem, Workspace},
         win_api::{self, BORDER_MANAGER, MonitorInfo},
         win_event::WindowEvent,
@@ -11,8 +12,9 @@ use crate::{
 
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
+use windows::Win32::UI::WindowsAndMessaging::{GW_HWNDNEXT, GetForegroundWindow, GetWindow};
 
-const SIZE_FACTOR: &[f32] = &[1.0, 0.75, 0.66, 0.5, 0.33, 0.25];
+// const self.size_factor: &[f32] = &[1.0, 0.75, 0.666666, 0.5, 0.333333, 0.25];
 const MONITOR_INDEX: usize = 0;
 
 pub type MonitorWidth = i32;
@@ -43,10 +45,11 @@ pub struct WindowHookHandler {
     blacklist: Vec<String>,
     workspaces: Vec<Workspace>,
     border_hwnd: Option<isize>,
+    size_factor: Vec<f32>,
 }
 
 impl WindowHookHandler {
-    fn new(blacklist: Vec<String>, workspaces: Vec<String>) -> Self {
+    fn new(blacklist: Vec<String>, workspaces: Vec<String>, size_factor: Vec<f32>) -> Self {
         Self {
             apps: HashMap::new(),
             monitors: Vec::new(),
@@ -57,6 +60,7 @@ impl WindowHookHandler {
             app_position: 0,
             active_app_index: 0,
             border_hwnd: None,
+            size_factor,
             workspaces: workspaces
                 .iter()
                 .enumerate()
@@ -71,6 +75,21 @@ impl WindowHookHandler {
                 .collect::<Vec<_>>(),
             current_active_workspace: 0,
         }
+    }
+    pub fn begin(&mut self) -> anyhow::Result<()> {
+        let mut current = { unsafe { GetForegroundWindow() } };
+        if current.0.is_null() {
+            anyhow::bail!("No current window");
+        }
+        while !current.0.is_null() {
+            if self.apps.contains_key(&(current.0 as isize)) {
+                println!("Foreground {:#?}", AppWindow::from(current).get_app_info());
+                self.current_active_app_hwnd = current.0 as isize;
+                break;
+            }
+            current = unsafe { GetWindow(current, GW_HWNDNEXT) }?;
+        }
+        Ok(())
     }
     fn update_border(&mut self, hwnd: Hwnd) {
         let rect = win_api::get_dwm_rect(hwnd!(hwnd), 0);
@@ -268,19 +287,22 @@ impl WindowHookHandler {
         Some(())
     }
     pub fn cycle_window_width(&mut self, direction: &str) -> Option<()> {
+        let size_factor = { self.size_factor.clone() };
         self.width_selector_index = {
             let app = self.get_active_app()?;
-            SIZE_FACTOR
+            size_factor
                 .iter()
                 .position(|c| c == &app.size_ratio.width)?
         };
         match direction {
             "Prev" => {
-                self.width_selector_index =
-                    ((self.width_selector_index + SIZE_FACTOR.len()) - 1) % SIZE_FACTOR.len();
+                self.width_selector_index = ((self.width_selector_index + self.size_factor.len())
+                    - 1)
+                    % self.size_factor.len();
             }
             "Next" => {
-                self.width_selector_index = (self.width_selector_index + 1) % SIZE_FACTOR.len();
+                self.width_selector_index =
+                    (self.width_selector_index + 1) % self.size_factor.len();
             }
             _ => {}
         }
@@ -288,24 +310,28 @@ impl WindowHookHandler {
         {
             let idx = self.width_selector_index;
             let app = self.get_active_app()?;
-            app.size_ratio.width = SIZE_FACTOR[idx];
+            app.size_ratio.width = size_factor[idx];
         }
         Some(())
     }
     pub fn cycle_window_height(&mut self, direction: &str) -> Option<()> {
+        let size_factor = { self.size_factor.clone() };
+
         self.height_selector_index = {
             let app = self.get_active_app()?;
-            SIZE_FACTOR
+            size_factor
                 .iter()
                 .position(|c| c == &app.size_ratio.height)?
         };
         match direction {
             "Prev" => {
                 self.height_selector_index =
-                    ((self.height_selector_index + SIZE_FACTOR.len()) - 1) % SIZE_FACTOR.len();
+                    ((self.height_selector_index + self.size_factor.len()) - 1)
+                        % self.size_factor.len();
             }
             "Next" => {
-                self.height_selector_index = (self.height_selector_index + 1) % SIZE_FACTOR.len();
+                self.height_selector_index =
+                    (self.height_selector_index + 1) % self.size_factor.len();
             }
             _ => {}
         }
@@ -313,18 +339,16 @@ impl WindowHookHandler {
         {
             let idx = self.height_selector_index;
             let app = self.get_active_app()?;
-            app.size_ratio.height = SIZE_FACTOR[idx];
+            app.size_ratio.height = size_factor[idx];
         }
         Some(())
     }
 
     fn go_animate(&mut self) -> Option<()> {
-        let (moni_w, moni_h, active_hwnd, pos, size, px, py, ratio, column) =
+        let (moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, column) =
             self.get_app_props()?;
-        let width = (SIZE_FACTOR[self.width_selector_index] * (moni_w as f32)) as i32;
-        let height = (SIZE_FACTOR[self.height_selector_index] * (moni_h as f32)) as i32;
-        // let x = pos.x - (px / 2);
-        // let y = pos.y - (py / 2);
+        let width = (self.size_factor[self.width_selector_index] * (moni_w as f32)) as i32;
+        let height = (self.size_factor[self.height_selector_index] * (moni_h as f32)) as i32;
         let w = width + (px);
         let h = height + (py);
         let to_pos = {
@@ -349,7 +373,7 @@ impl WindowHookHandler {
     }
 
     pub fn cycle_position(&mut self, grid: Vec<(f32, f32, f32, f32)>) -> Option<()> {
-        let (moni_w, moni_h, active_hwnd, pos, size, px, py, ratio, column) =
+        let (moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, _column) =
             self.get_app_props()?;
         self.app_position = (self.app_position + 1) % grid.len();
         if let Some((x, y, w, h)) = grid.get(self.app_position) {
@@ -381,7 +405,7 @@ impl WindowHookHandler {
         &self.workspaces
     }
 
-    pub fn create_workspace(&mut self, title: &str, monitor: usize) -> Option<()> {
+    pub fn create_workspace(&mut self, title: &str, _monitor: usize) -> Option<()> {
         {
             self.workspaces.push(Workspace {
                 text: title.into(),
@@ -509,7 +533,7 @@ impl WindowHookHandler {
         }
     }
     pub fn move_active_app_to_workspace(&mut self, workspace: &str) -> anyhow::Result<()> {
-        let (active_hwnd, app_name) = {
+        let (active_hwnd, _) = {
             let app = self
                 .get_active_app()
                 .ok_or(anyhow::anyhow!("active app not found"))?;
@@ -534,9 +558,13 @@ pub struct WindowHook {
 }
 
 impl WindowHook {
-    pub fn new(blacklist: Vec<String>, workspaces: Vec<String>) -> Self {
+    pub fn new(blacklist: Vec<String>, workspaces: Vec<String>, size_factor: Vec<f32>) -> Self {
         Self {
-            handler: Arc::new(Mutex::new(WindowHookHandler::new(blacklist, workspaces))),
+            handler: Arc::new(Mutex::new(WindowHookHandler::new(
+                blacklist,
+                workspaces,
+                size_factor,
+            ))),
         }
     }
     pub fn bind<F>(self, f: F) -> Self
@@ -558,12 +586,16 @@ impl WindowHook {
             while let Ok((ev, app_window)) = crate::hook::win_api::channel_receiver().recv() {
                 match ev {
                     WindowEvent::ObjectShow => {
-                        // App is being shown/unminimized - update info but don't reassign workspace
                         if let Some(app_info) = app_window.get_app_info() {
                             handler
                                 .lock()
                                 .update_apps(app_info, WindowEvent::ObjectShow);
                         }
+                    }
+                    // this event fire after we already done listing
+                    // all active app.
+                    WindowEvent::Done => {
+                        handler.lock().begin();
                     }
                     WindowEvent::ObjectCreate => {
                         if let Some(app_info) = app_window.get_app_info() {

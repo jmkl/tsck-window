@@ -72,6 +72,7 @@ pub fn init_winhook() {
         if let Err(err) = unsafe { EnumWindows(Some(init_applist), LPARAM(0)) } {
             eprintln!("Error Listing {err}")
         }
+        channel_send(WindowEvent::Done, AppWindow::default());
 
         // Attach window hook
         unsafe {
@@ -469,15 +470,12 @@ pub(crate) fn set_badge_position(
 pub(crate) fn bring_to_front(hwnd: HWND) {
     unsafe {
         if IsWindow(Some(hwnd)) == FALSE {
-            eprintln!("This is not a window");
             return;
         }
         if IsIconic(hwnd) == TRUE {
-            eprintln!("ICONIC, RESTORE");
             ShowWindow(hwnd, SW_RESTORE);
         }
         let res = SetForegroundWindow(hwnd);
-        eprintln!("SET FORGORUND {:?} {}", hwnd.0, res.as_bool());
         force_bring_to_front(hwnd);
     }
 }

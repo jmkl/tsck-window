@@ -68,7 +68,7 @@ struct BorderState {
 }
 
 pub struct BorderManager {
-    pub state: Arc<Mutex<BorderState>>,
+    state: Arc<Mutex<BorderState>>,
 }
 
 impl BorderManager {

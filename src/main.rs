@@ -62,6 +62,7 @@ struct NtekConfig {
     size_inc: i32,
     hotkeys: HashMap<String, SomeFunc>,
     blacklist: Vec<String>,
+    size_factor: Vec<f32>,
 }
 
 impl WF {
@@ -231,6 +232,7 @@ fn main() -> anyhow::Result<()> {
     WindowHook::new(
         ntek_config.blacklist.clone(),
         ntek_config.workspaces.clone(),
+        ntek_config.size_factor.clone(),
     )
     .bind(|handler| spawn_hotkee(handler, ntek_config))
     .run();
