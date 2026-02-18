@@ -1,30 +1,68 @@
 use parking_lot::Mutex;
-use std::{sync::Arc, thread, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 use windows::{
     Win32::{
         Foundation::*,
         Graphics::{
             Direct2D::{Common::*, *},
+            DirectWrite::{
+                DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL,
+                DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
+                DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
+            },
             Dwm::*,
-            Gdi::{InvalidateRect, UpdateWindow, ValidateRect},
+            Gdi::{
+                EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, InvalidateRect,
+                MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow, UpdateWindow,
+                ValidateRect,
+            },
         },
         System::LibraryLoader::*,
         UI::{Controls::MARGINS, WindowsAndMessaging::*},
     },
     core::*,
 };
+
+use crate::hook::{api::Hwnd, app_info::AppPosition};
+
 macro_rules! hwnd {
     ($self:ident) => {
         HWND($self.hwnd as *mut std::ffi::c_void)
     };
 }
+
 // Custom messages
 const WM_UPDATE_COLOR: u32 = WM_USER + 1;
 const WM_UPDATE_THICKNESS: u32 = WM_USER + 2;
 const WM_UPDATE_RADIUS: u32 = WM_USER + 3;
-const PADDING: i32 = 0;
+const WM_UPDATE_WORKSPACES: u32 = WM_USER + 4;
+const WM_UPDATE_RECT_POS: u32 = WM_USER + 5;
+const WM_UPDATE_RECT_SIZE: u32 = WM_USER + 6;
 
-// Only store thread-safe data (HWND is safe to share)
+#[derive(Clone, Debug)]
+pub struct HwndItem {
+    pub hwnd: Hwnd,
+    pub monitor: usize,
+    pub parked_position: Option<i32>,
+}
+#[derive(Clone, Debug)]
+pub struct Workspace {
+    pub text: String,
+    pub active: bool,
+    pub hwnds: Vec<HwndItem>,
+}
+
+#[derive(Clone, Debug)]
+pub struct MonitorInfo {
+    pub index: usize,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub is_primary: bool,
+}
+
 struct BorderState {
     hwnd: isize,
 }
@@ -34,16 +72,19 @@ pub struct BorderManager {
 }
 
 impl BorderManager {
+    /// Create a new BorderManager on the primary monitor
     pub fn new() -> Self {
+        Self::new_on_monitor(None)
+    }
+
+    /// Create a BorderManager on a specific monitor (None = primary, Some(index) = specific monitor)
+    pub fn new_on_monitor(monitor_index: Option<usize>) -> Self {
         let window = unsafe {
             TransparentBorderWindow::new(
-                100,      // x
-                100,      // y
-                0,        // width
-                0,        // height
                 0xAC3E31, // red color
-                3.0,      // border thickness
+                2.0,      // border thickness
                 5.0,      // corner radius
+                monitor_index,
             )
             .unwrap()
         };
@@ -52,13 +93,50 @@ impl BorderManager {
             hwnd: window.hwnd().0 as isize,
         }));
 
-        // Don't drop window - it needs to stay alive
         std::mem::forget(window);
 
         Self { state }
     }
 
-    /// Start the message loop - call this in a dedicated thread
+    /// Get list of all available monitors
+    pub fn get_monitors() -> Vec<MonitorInfo> {
+        unsafe {
+            let mut monitors = Vec::new();
+            let monitors_ptr = &mut monitors as *mut Vec<MonitorInfo>;
+
+            unsafe extern "system" fn enum_proc(
+                hmonitor: HMONITOR,
+                _hdc: HDC,
+                _rect: *mut RECT,
+                lparam: LPARAM,
+            ) -> BOOL {
+                let monitors = unsafe { &mut *(lparam.0 as *mut Vec<MonitorInfo>) };
+
+                let mut monitor_info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+
+                if unsafe { GetMonitorInfoW(hmonitor, &mut monitor_info).as_bool() } {
+                    let info = MonitorInfo {
+                        index: monitors.len(),
+                        x: monitor_info.rcMonitor.left,
+                        y: monitor_info.rcMonitor.top,
+                        width: monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                        height: monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+                        is_primary: monitor_info.dwFlags & 1 != 0, // MONITORINFOF_PRIMARY = 1
+                    };
+                    monitors.push(info);
+                }
+
+                true.into()
+            }
+
+            let _ = EnumDisplayMonitors(None, None, Some(enum_proc), LPARAM(monitors_ptr as isize));
+            monitors
+        }
+    }
+
     pub fn run_message_loop(&self) {
         unsafe {
             let mut msg = MSG::default();
@@ -69,76 +147,62 @@ impl BorderManager {
         }
     }
 
-    /// Update position (thread-safe)
-    pub fn update_position(&self, x: i32, y: i32) -> anyhow::Result<()> {
+    /// Update the bordered rectangle position
+    pub fn update_rect_position(&self, x: i32, y: i32) -> anyhow::Result<()> {
         let state = self.state.lock();
         unsafe {
-            SetWindowPos(hwnd!(state), Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOACTIVATE)?;
-        }
-        Ok(())
-    }
-    pub fn update_sizepos_delay(
-        &self,
-        delay: u64,
-        size: (i32, i32),
-        position: (i32, i32),
-    ) -> anyhow::Result<()> {
-        let state = self.state.clone();
-        thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(delay));
-            let state = state.lock();
-            let w = (size.0 - PADDING * 2).max(0);
-            let h = (size.1 - PADDING * 2).max(0);
-            unsafe {
-                _ = SetWindowPos(
-                    hwnd!(state),
-                    Some(HWND_TOPMOST),
-                    position.0 + PADDING,
-                    position.1 + PADDING,
-                    w,
-                    h,
-                    SWP_NOACTIVATE,
-                );
-            }
-        });
-        Ok(())
-    }
-    pub fn update_sizepos(&self, size: (i32, i32), position: (i32, i32)) -> anyhow::Result<()> {
-        let state = self.state.lock();
-        let w = (size.0 - PADDING * 2).max(0);
-        let h = (size.1 - PADDING * 2).max(0);
-        unsafe {
-            _ = SetWindowPos(
-                hwnd!(state),
-                Some(HWND_TOPMOST),
-                position.0 + PADDING,
-                position.1 + PADDING,
-                w,
-                h,
-                SWP_NOACTIVATE,
-            );
-        }
-        Ok(())
-    }
-
-    /// Update size (thread-safe)
-    pub fn update_size(&self, width: i32, height: i32) -> anyhow::Result<()> {
-        let state = self.state.lock();
-        unsafe {
-            SetWindowPos(
-                hwnd!(state),
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                width,
-                height,
-                SWP_NOMOVE | SWP_NOACTIVATE,
+            PostMessageW(
+                Some(hwnd!(state)),
+                WM_UPDATE_RECT_POS,
+                WPARAM(x as usize),
+                LPARAM(y as isize),
             )?;
         }
         Ok(())
     }
 
-    /// Update corner radius (thread-safe)
+    /// Update the bordered rectangle size
+    pub fn update_rect_size(&self, width: i32, height: i32) -> anyhow::Result<()> {
+        let state = self.state.lock();
+        unsafe {
+            PostMessageW(
+                Some(hwnd!(state)),
+                WM_UPDATE_RECT_SIZE,
+                WPARAM(width as usize),
+                LPARAM(height as isize),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Update both position and size of the bordered rectangle
+    pub fn update_rect_bounds(
+        &self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> anyhow::Result<()> {
+        self.update_rect_position(x, y)?;
+        self.update_rect_size(width, height)?;
+        Ok(())
+    }
+
+    /// Update workspaces
+    pub fn update_workspaces(&self, workspaces: Vec<Workspace>) -> anyhow::Result<()> {
+        let state = self.state.lock();
+        unsafe {
+            PostMessageW(
+                Some(hwnd!(state)),
+                WM_UPDATE_WORKSPACES,
+                WPARAM(Box::into_raw(Box::new(workspaces)) as usize),
+                LPARAM(0),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Update corner radius
     pub fn update_corner_radius(&self, radius: f32) -> anyhow::Result<()> {
         let state = self.state.lock();
         unsafe {
@@ -152,7 +216,7 @@ impl BorderManager {
         Ok(())
     }
 
-    /// Update color (thread-safe)
+    /// Update color
     pub fn update_color(&self, color: u32) -> anyhow::Result<()> {
         let state = self.state.lock();
         unsafe {
@@ -166,7 +230,7 @@ impl BorderManager {
         Ok(())
     }
 
-    /// Update thickness (thread-safe)
+    /// Update thickness
     pub fn update_thickness(&self, thickness: f32) -> anyhow::Result<()> {
         let state = self.state.lock();
         unsafe {
@@ -180,7 +244,7 @@ impl BorderManager {
         Ok(())
     }
 
-    /// Set visibility (thread-safe)
+    /// Set visibility
     pub fn set_visible(&self, visible: bool) -> anyhow::Result<()> {
         let state = self.state.lock();
         unsafe {
@@ -189,13 +253,13 @@ impl BorderManager {
         Ok(())
     }
 
-    /// Get window handle (thread-safe)
+    /// Get window handle
     pub fn hwnd(&self) -> HWND {
         let state = self.state.lock();
         hwnd!(state)
     }
 
-    /// Clone the manager for sharing across threads
+    /// Clone the manager
     pub fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -205,7 +269,6 @@ impl BorderManager {
 
 impl Drop for BorderManager {
     fn drop(&mut self) {
-        // Only destroy when the last reference is dropped
         if Arc::strong_count(&self.state) == 1 {
             let state = self.state.lock();
             unsafe {
@@ -215,35 +278,42 @@ impl Drop for BorderManager {
     }
 }
 
-// Window data stored in GWLP_USERDATA - lives only in window thread
-struct WindowData {
-    render_target: ID2D1HwndRenderTarget,
-    brush: ID2D1SolidColorBrush,
-    thickness: f32,
-    corner_radius: f32,
+struct WorkspaceData {
+    text: Vec<u16>,
+    active: bool,
 }
 
-// Simple transparent window with rounded border
+struct WindowData {
+    render_target: ID2D1HwndRenderTarget,
+    border_brush: ID2D1SolidColorBrush,
+    active_bg_brush: ID2D1SolidColorBrush,
+    inactive_bg_brush: ID2D1SolidColorBrush,
+    text_brush: ID2D1SolidColorBrush,
+    text_format: IDWriteTextFormat,
+    thickness: f32,
+    corner_radius: f32,
+    workspaces: Vec<WorkspaceData>,
+    rect_x: f32,
+    rect_y: f32,
+    rect_width: f32,
+    rect_height: f32,
+}
+
 struct TransparentBorderWindow {
     hwnd: HWND,
 }
 
 impl TransparentBorderWindow {
     unsafe fn new(
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
         border_color: u32,
         border_thickness: f32,
         corner_radius: f32,
+        monitor_index: Option<usize>,
     ) -> anyhow::Result<Self> {
-        // Create D2D factory
         let d2d_factory: ID2D1Factory =
             unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
 
-        // Register window class
-        let class_name = w!("ThreadSafeBorderWindow");
+        let class_name = w!("FullscreenBorderWindow");
         let hinstance = unsafe { GetModuleHandleW(None)? };
 
         let wc = WNDCLASSEXW {
@@ -257,24 +327,77 @@ impl TransparentBorderWindow {
 
         let _ = unsafe { RegisterClassExW(&wc) };
 
-        // Create the window
+        // Create fullscreen window
         let hwnd = unsafe {
             CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                // | WS_EX_TRANSPARENT,
+                WS_EX_LAYERED
+                    | WS_EX_TOPMOST
+                    | WS_EX_TOOLWINDOW
+                    | WS_EX_NOACTIVATE
+                    | WS_EX_TRANSPARENT,
                 class_name,
-                w!("Border"),
+                w!("Border Overlay"),
                 WS_POPUP | WS_VISIBLE,
-                x,
-                y,
-                width,
-                height,
+                0,
+                0,
+                0,
+                0,
                 None,
                 None,
                 Some(HINSTANCE(hinstance.0)),
                 None,
             )?
         };
+
+        // Get the target monitor
+        let monitor_rect = if let Some(index) = monitor_index {
+            // Get specific monitor by index
+            let monitors = BorderManager::get_monitors();
+            monitors
+                .get(index)
+                .map(|m| RECT {
+                    left: m.x,
+                    top: m.y,
+                    right: m.x + m.width,
+                    bottom: m.y + m.height,
+                })
+                .unwrap_or_else(|| {
+                    // Fallback to primary if index is invalid
+                    let hmonitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY) };
+                    let mut monitor_info = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..Default::default()
+                    };
+                    unsafe { GetMonitorInfoW(hmonitor, &mut monitor_info).unwrap() };
+                    monitor_info.rcMonitor
+                })
+        } else {
+            // Use primary monitor
+            let hmonitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY) };
+            let mut monitor_info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            unsafe {
+                _ = GetMonitorInfoW(hmonitor, &mut monitor_info);
+            };
+            monitor_info.rcMonitor
+        };
+
+        let screen_width = monitor_rect.right - monitor_rect.left;
+        let screen_height = monitor_rect.bottom - monitor_rect.top;
+
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                monitor_rect.left,
+                monitor_rect.top,
+                screen_width,
+                screen_height,
+                SWP_NOACTIVATE,
+            )?;
+        }
 
         // Enable DWM transparency
         let margins = MARGINS {
@@ -302,36 +425,108 @@ impl TransparentBorderWindow {
         let hwnd_props = D2D1_HWND_RENDER_TARGET_PROPERTIES {
             hwnd,
             pixelSize: D2D_SIZE_U {
-                width: width as u32,
-                height: height as u32,
+                width: screen_width as u32,
+                height: screen_height as u32,
             },
             presentOptions: D2D1_PRESENT_OPTIONS_IMMEDIATELY,
         };
 
         let render_target = unsafe { d2d_factory.CreateHwndRenderTarget(&props, &hwnd_props)? };
 
-        let color = D2D1_COLOR_F {
+        let border_color_d2d = D2D1_COLOR_F {
             r: ((border_color >> 16) & 0xFF) as f32 / 255.0,
             g: ((border_color >> 8) & 0xFF) as f32 / 255.0,
             b: (border_color & 0xFF) as f32 / 255.0,
             a: 1.0,
         };
 
-        let brush = unsafe { render_target.CreateSolidColorBrush(&color, None)? };
+        let border_brush = unsafe { render_target.CreateSolidColorBrush(&border_color_d2d, None)? };
 
-        // Store window data
+        // Active workspace background (red)
+        let active_bg_brush = unsafe {
+            render_target.CreateSolidColorBrush(
+                &D2D1_COLOR_F {
+                    r: 0.6745,
+                    g: 0.2431,
+                    b: 0.1922,
+                    a: 1.0,
+                },
+                None,
+            )?
+        };
+
+        // Inactive workspace background (dim gray)
+        let inactive_bg_brush = unsafe {
+            render_target.CreateSolidColorBrush(
+                &D2D1_COLOR_F {
+                    r: 0.2,
+                    g: 0.2,
+                    b: 0.2,
+                    a: 0.6,
+                },
+                None,
+            )?
+        };
+
+        // Text brush (white)
+        let text_brush = unsafe {
+            render_target.CreateSolidColorBrush(
+                &D2D1_COLOR_F {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                },
+                None,
+            )?
+        };
+
+        let dwrite_factory =
+            unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED)? };
+
+        let text_format = unsafe {
+            dwrite_factory.CreateTextFormat(
+                w!("Segoe UI"),
+                None,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                14.0,
+                w!("en-us"),
+            )?
+        };
+
+        unsafe {
+            text_format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+        }
+
+        // Initial workspaces
+        let workspaces = vec![WorkspaceData {
+            text: "Main".encode_utf16().collect(),
+            active: true,
+        }];
+
         let window_data = Box::new(WindowData {
             render_target,
-            brush,
+            border_brush,
+            active_bg_brush,
+            inactive_bg_brush,
+            text_brush,
+            text_format,
             thickness: border_thickness,
             corner_radius,
+            workspaces,
+            rect_x: 0.0,
+            rect_y: 0.0,
+            rect_width: 0.0,
+            rect_height: 0.0,
         });
 
         unsafe {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(window_data) as isize);
         }
 
-        // Initial paint
         unsafe {
             _ = InvalidateRect(Some(hwnd), None, false);
             _ = UpdateWindow(hwnd);
@@ -359,6 +554,7 @@ impl TransparentBorderWindow {
                     unsafe {
                         data.render_target.BeginDraw();
 
+                        // Clear to transparent
                         data.render_target.Clear(Some(&D2D1_COLOR_F {
                             r: 0.0,
                             g: 0.0,
@@ -368,17 +564,17 @@ impl TransparentBorderWindow {
 
                         let mut rect = RECT::default();
                         let _ = GetClientRect(hwnd, &mut rect);
+                        let screen_width = (rect.right - rect.left) as f32;
+                        let _screen_height = (rect.bottom - rect.top) as f32;
 
-                        let width = (rect.right - rect.left) as f32;
-                        let height = (rect.bottom - rect.top) as f32;
+                        // Draw the bordered rectangle
                         let half = data.thickness / 2.0;
-
                         let rounded_rect = D2D1_ROUNDED_RECT {
                             rect: D2D_RECT_F {
-                                left: half,
-                                top: half,
-                                right: width - half,
-                                bottom: height - half,
+                                left: data.rect_x + half,
+                                top: data.rect_y + half,
+                                right: data.rect_x + data.rect_width - half,
+                                bottom: data.rect_y + data.rect_height - half,
                             },
                             radiusX: data.corner_radius,
                             radiusY: data.corner_radius,
@@ -386,10 +582,61 @@ impl TransparentBorderWindow {
 
                         data.render_target.DrawRoundedRectangle(
                             &rounded_rect,
-                            &data.brush,
+                            &data.border_brush,
                             data.thickness,
                             None,
                         );
+
+                        // Draw workspaces at top center
+                        let workspace_height = 20.0;
+                        let workspace_width = 80.0;
+                        let workspace_gap = 3.0;
+                        let total_width = data.workspaces.len() as f32
+                            * (workspace_width + workspace_gap)
+                            - workspace_gap;
+                        let start_x = (screen_width - total_width) / 2.0;
+
+                        for (i, workspace) in data.workspaces.iter().enumerate() {
+                            let x = start_x + i as f32 * (workspace_width + workspace_gap);
+                            let y = 5.0;
+
+                            // Draw background
+                            let bg_rect = D2D1_ROUNDED_RECT {
+                                rect: D2D_RECT_F {
+                                    left: x,
+                                    top: y,
+                                    right: x + workspace_width,
+                                    bottom: y + workspace_height,
+                                },
+                                radiusX: 4.0,
+                                radiusY: 4.0,
+                            };
+
+                            let bg_brush = if workspace.active {
+                                &data.active_bg_brush
+                            } else {
+                                &data.inactive_bg_brush
+                            };
+
+                            data.render_target.FillRoundedRectangle(&bg_rect, bg_brush);
+
+                            // Draw text
+                            let text_rect = D2D_RECT_F {
+                                left: x,
+                                top: y,
+                                right: x + workspace_width,
+                                bottom: y + workspace_height,
+                            };
+
+                            data.render_target.DrawText(
+                                &workspace.text,
+                                &data.text_format,
+                                &text_rect,
+                                &data.text_brush,
+                                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                                DWRITE_MEASURING_MODE_NATURAL,
+                            );
+                        }
 
                         let _ = data.render_target.EndDraw(None, None);
                     }
@@ -410,7 +657,56 @@ impl TransparentBorderWindow {
                         a: 1.0,
                     };
                     unsafe {
-                        data.brush.SetColor(&d2d_color);
+                        data.border_brush.SetColor(&d2d_color);
+                        _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_UPDATE_WORKSPACES => {
+                let ptr = wparam.0 as *mut Vec<Workspace>;
+                if !ptr.is_null() {
+                    unsafe {
+                        let workspaces = Box::from_raw(ptr);
+                        let data_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+                        if data_ptr != 0 {
+                            let data = &mut *(data_ptr as *mut WindowData);
+                            data.workspaces = workspaces
+                                .iter()
+                                .map(|w| WorkspaceData {
+                                    text: w.text.encode_utf16().collect(),
+                                    active: w.active,
+                                })
+                                .collect();
+                        }
+                        _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_UPDATE_RECT_POS => {
+                let x = wparam.0 as i32;
+                let y = lparam.0 as i32;
+                let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
+                if ptr != 0 {
+                    let data = unsafe { &mut *(ptr as *mut WindowData) };
+                    data.rect_x = x as f32;
+                    data.rect_y = y as f32;
+                    unsafe {
+                        _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_UPDATE_RECT_SIZE => {
+                let width = wparam.0 as i32;
+                let height = lparam.0 as i32;
+                let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
+                if ptr != 0 {
+                    let data = unsafe { &mut *(ptr as *mut WindowData) };
+                    data.rect_width = width as f32;
+                    data.rect_height = height as f32;
+                    unsafe {
                         _ = InvalidateRect(Some(hwnd), None, false);
                     }
                 }
