@@ -14,9 +14,9 @@ workspace_grid = [
 
 ]
 workspaces = [
-  "☀Work",
-  "✨Browsing",
-  "💀Files",
+  "Work",
+  "Browsing",
+  "Files",
 ]
 blacklist = [
     "wezterm-gui.exe",
@@ -27,9 +27,9 @@ blacklist = [
     "StartMenuExperienceHost.exe",
     "SearchHost.exe"
 ]
-
 move_inc = 50
 size_inc = 50
+
 hotkeys = {
   C-S-right         : W::MoveActiveApp(Right),
   C-S-A-pagedown    : W::MoveToWorkspace(Next),
