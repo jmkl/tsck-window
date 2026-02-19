@@ -50,6 +50,7 @@ hotkeys = {
   C-S-h             : W::CycleAppWidth(Prev),
   C-S-l             : W::CycleAppWidth(Next),
   C-S-c             : W::CycleColumn,
+  C-S-w             : W::CloseActiveApp,
   C-S-comma         : W::CycleActiveApp(Prev),
   C-S-dot           : W::CycleActiveApp(Next),
 }
