@@ -3,9 +3,7 @@ use crate::{
         self, animation,
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
         app_window::AppWindow,
-        border::{
-            BorderManager, HwndItem, SlotText, StatusBar, StatusBarFont, Visibility, Workspace,
-        },
+        border::{HwndItem, SlotText, StatusBar, StatusBarFont, Visibility, Workspace},
         win_api::{self, BORDER_MANAGER, MonitorInfo},
         win_event::WinEvent,
     },
@@ -13,10 +11,11 @@ use crate::{
 };
 
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use windows::Win32::UI::WindowsAndMessaging::{GW_HWNDNEXT, GetForegroundWindow, GetWindow};
 
 pub type MonitorWidth = i32;
+pub type MonitorLeft = i32;
 pub type MonitorHeight = i32;
 pub type PadX = i32;
 pub type PadY = i32;
@@ -56,7 +55,7 @@ impl Default for WidgetSlots {
 }
 pub struct WindowHookHandler {
     current_active_app_hwnd: Hwnd,
-    current_active_workspace: usize,
+    active_workspace_per_monitor: Vec<usize>,
     height_selector_index: usize,
     width_selector_index: usize,
     app_position: usize,
@@ -98,7 +97,7 @@ impl WindowHookHandler {
                     hwnds: Vec::new(),
                 })
                 .collect(),
-            current_active_workspace: 0,
+            active_workspace_per_monitor: vec![0; 2],
             user_widgets: WidgetSlots {
                 workspace_indicator: WorkspaceIndicatorPosition::Center,
                 ..Default::default()
@@ -200,14 +199,16 @@ impl WindowHookHandler {
     }
 
     fn get_workspace_indicator(&mut self, monitor_index: usize) -> Vec<SlotText> {
+        let active = self.active_workspace_for(monitor_index);
         self.workspaces
             .iter()
-            .map(|ws| {
+            .enumerate()
+            .map(|(idx, ws)| {
                 let has_apps = ws.hwnds.iter().any(|h| h.monitor == monitor_index);
                 SlotText {
                     text: ws.text.clone(),
                     foreground: if has_apps { 0xFFFFFF } else { 0x666666 },
-                    background: if ws.active { 0xAC3E31 } else { 0x80000000 },
+                    background: if active == idx { 0xAC3E31 } else { 0x80000000 },
                 }
             })
             .collect()
@@ -246,9 +247,15 @@ impl WindowHookHandler {
         let app_monitor = self.monitor_index_for(hwnd);
         let rect = win_api::get_dwm_rect(hwnd!(hwnd), 0);
 
-        // update active workspace flags
         for (idx, ws) in self.workspaces.iter_mut().enumerate() {
-            ws.active = self.current_active_workspace == idx;
+            // mark active per monitor — just use monitor 0's active as the global flag
+            // since ws.active is only used for legacy checks, drive it from app_monitor
+            ws.active = self
+                .active_workspace_per_monitor
+                .get(0) // or app_monitor if you want per-monitor
+                .copied()
+                .unwrap_or(0)
+                == idx;
         }
 
         let border = BORDER_MANAGER.lock();
@@ -374,6 +381,7 @@ impl WindowHookHandler {
     fn get_app_props(
         &mut self,
     ) -> Option<(
+        MonitorLeft,
         MonitorWidth,
         MonitorHeight,
         Hwnd,
@@ -384,12 +392,12 @@ impl WindowHookHandler {
         SizeRatio,
         Column,
     )> {
-        // Use the monitor that owns the active app, not always monitor 0
-        let (moni_w, moni_h) = {
+        let (moni_left, moni_w, moni_h) = {
             let active_hwnd = self.current_active_app_hwnd;
             let monitor_idx = self.monitor_index_for(active_hwnd);
             let monitor = self.monitors.get(monitor_idx)?;
-            (monitor.width, monitor.height)
+
+            (monitor.left, monitor.width, monitor.height)
         };
         let (active_hwnd, pos, size, ratio, column) = {
             let app = self.get_active_app()?;
@@ -403,6 +411,7 @@ impl WindowHookHandler {
         };
         let (px, py) = self.get_rect_padding(active_hwnd);
         Some((
+            moni_left,
             moni_w,
             moni_h,
             active_hwnd,
@@ -424,15 +433,14 @@ impl WindowHookHandler {
     /// Cycle the active app on whichever monitor the current app is on.
     pub fn cycle_active_app(&mut self, direction: &str) -> anyhow::Result<()> {
         let target_monitor = self.monitor_index_for(self.current_active_app_hwnd);
-
-        // Use cached hwnd instead of locking BORDER_MANAGER again
+        let active_ws = self.active_workspace_for(target_monitor);
         let border_hwnd = self.border_hwnds.get(target_monitor).copied().unwrap_or(0);
         let border_hwnd = hwnd!(border_hwnd);
 
         let hwnd_items: Vec<isize> = {
             let ws = self
                 .workspaces
-                .get(self.current_active_workspace)
+                .get(active_ws)
                 .ok_or(anyhow::anyhow!("Can't get workspace"))?;
             ws.hwnds
                 .iter()
@@ -458,6 +466,7 @@ impl WindowHookHandler {
 
         if let Some(&target_hwnd) = hwnd_items.get(self.active_app_index) {
             if let Some(app) = self.apps.get(&target_hwnd) {
+                println!("Active App {}", app.exe);
                 win_api::bring_to_front(hwnd!(app.hwnd), border_hwnd);
                 self.current_active_app_hwnd = app.hwnd;
                 self.update_border(app.hwnd);
@@ -477,7 +486,16 @@ impl WindowHookHandler {
         Some(())
     }
 
-    pub fn cycle_window_width(&mut self, direction: &str) -> Option<()> {
+    pub fn reposition_app_on_monitor(&mut self, app: &AppInfo) {
+        let toolbar_height = win_api::get_toolbar_height(self.monitor_index_for(app.hwnd));
+        if app.position.y < toolbar_height {
+            win_api::set_app_position(hwnd!(app.hwnd), app.position.x, toolbar_height);
+            self.update_app_parking_position(app.hwnd, app.position.y.max(toolbar_height));
+            self.update_border(app.hwnd);
+        }
+    }
+
+    pub fn cycle_app_width(&mut self, direction: &str) -> Option<()> {
         let size_factor = self.size_factor.clone();
         self.width_selector_index = {
             let app = self.get_active_app()?;
@@ -506,7 +524,7 @@ impl WindowHookHandler {
         Some(())
     }
 
-    pub fn cycle_window_height(&mut self, direction: &str) -> Option<()> {
+    pub fn cycle_app_height(&mut self, direction: &str) -> Option<()> {
         let size_factor = self.size_factor.clone();
         self.height_selector_index = {
             let app = self.get_active_app()?;
@@ -536,16 +554,19 @@ impl WindowHookHandler {
     }
 
     fn go_animate(&mut self) -> Option<()> {
-        let (moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, column) =
+        let (moni_left, moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, column) =
             self.get_app_props()?;
         let width = (self.size_factor[self.width_selector_index] * moni_w as f32) as i32;
         let height = (self.size_factor[self.height_selector_index] * moni_h as f32) as i32;
         let w = width + px;
         let h = height + py;
         let to_pos = match column {
-            Column::Left => AppPosition { x: -(px / 2), y: 0 },
+            Column::Left => AppPosition {
+                x: moni_left + (-(px / 2)),
+                y: 0,
+            },
             Column::Right => AppPosition {
-                x: (moni_w - (px / 2)) - width,
+                x: moni_left + ((moni_w - (px / 2)) - width),
                 y: 0,
             },
         };
@@ -559,13 +580,27 @@ impl WindowHookHandler {
         );
         Some(())
     }
+    pub fn fake_maximize(&mut self) -> Option<()> {
+        let (moni_left, moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, column) =
+            self.get_app_props()?;
+        let width = (self.size_factor[self.width_selector_index] * moni_w as f32) as i32;
+        let height = (self.size_factor[self.height_selector_index] * moni_h as f32) as i32;
+        let toolbar_height = win_api::get_toolbar_height(self.monitor_index_for(active_hwnd));
 
-    pub fn cycle_position(&mut self, grid: Vec<(f32, f32, f32, f32)>) -> Option<()> {
-        let (moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, _column) =
+        let w = width + px;
+        let h = height + (py / 2);
+        let x = moni_left + (-(px / 2));
+        let y = toolbar_height;
+        win_api::set_app_size_position(hwnd!(active_hwnd), x, y, w, h, true);
+        Some(())
+    }
+
+    pub fn cycle_app_on_grid(&mut self, grid: Vec<(f32, f32, f32, f32)>) -> Option<()> {
+        let (moni_left, moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, _column) =
             self.get_app_props()?;
         self.app_position = (self.app_position + 1) % grid.len();
         if let Some((x, y, w, h)) = grid.get(self.app_position) {
-            let x = (moni_w as f32 * x) as i32 - (px / 2);
+            let x = moni_left + ((moni_w as f32 * x) as i32 - (px / 2));
             let y = (moni_h as f32 * y) as i32 - (py / 2);
             let w = (moni_w as f32 * w) as i32 + px;
             let h = (moni_h as f32 * h) as i32 + py;
@@ -590,7 +625,12 @@ impl WindowHookHandler {
     pub fn get_all_workspaces(&self) -> &[Workspace] {
         &self.workspaces
     }
-
+    fn active_workspace_for(&self, monitor: usize) -> usize {
+        self.active_workspace_per_monitor
+            .get(monitor)
+            .copied()
+            .unwrap_or(0)
+    }
     pub fn create_workspace(&mut self, title: &str, _monitor: usize) -> Option<()> {
         self.workspaces.push(Workspace {
             text: title.into(),
@@ -651,22 +691,31 @@ impl WindowHookHandler {
             }
         }
     }
-
     fn reorder_app_pos_in_workspace(&mut self) -> anyhow::Result<()> {
         for (workspace_index, workspace) in self.workspaces.iter_mut().enumerate() {
-            let is_active = self.current_active_workspace == workspace_index;
             for hitem in workspace.hwnds.iter_mut() {
-                // Now works for ALL monitors, not just MONITOR_INDEX = 0
+                let is_active = self
+                    .active_workspace_per_monitor
+                    .get(hitem.monitor)
+                    .copied()
+                    .unwrap_or(0)
+                    == workspace_index;
                 if let Some(appinfo) = self.apps.get(&hitem.hwnd) {
                     if is_active {
+                        let toolbar_height = {
+                            let idx =
+                                win_api::get_monitor_index(hwnd!(appinfo.hwnd), &self.monitors)
+                                    .unwrap_or(0);
+                            win_api::get_toolbar_height(idx)
+                        };
                         if let Some(parked_pos) = hitem.parked_position {
                             win_api::set_app_position(
                                 hwnd!(hitem.hwnd),
                                 appinfo.position.x,
-                                parked_pos,
+                                parked_pos.max(toolbar_height),
                             );
                         } else {
-                            hitem.parked_position = Some(appinfo.position.y);
+                            hitem.parked_position = Some(appinfo.position.y.max(toolbar_height));
                         }
                     } else if hitem.parked_position.is_some() {
                         win_api::set_app_position(hwnd!(hitem.hwnd), appinfo.position.x, -2000);
@@ -674,7 +723,6 @@ impl WindowHookHandler {
                 }
             }
         }
-
         if self.current_active_app_hwnd > 0 {
             let h = self.current_active_app_hwnd;
             self.update_border(h);
@@ -683,8 +731,9 @@ impl WindowHookHandler {
     }
 
     fn reorder_app_pos_in_workspace_for_monitor(&mut self, monitor: usize) -> anyhow::Result<()> {
+        let active_ws = self.active_workspace_for(monitor);
         for (workspace_index, workspace) in self.workspaces.iter_mut().enumerate() {
-            let is_active = self.current_active_workspace == workspace_index;
+            let is_active = active_ws == workspace_index;
             for hitem in workspace.hwnds.iter_mut() {
                 if hitem.monitor != monitor {
                     continue;
@@ -695,10 +744,11 @@ impl WindowHookHandler {
                             win_api::set_app_position(
                                 hwnd!(hitem.hwnd),
                                 appinfo.position.x,
-                                parked_pos,
+                                parked_pos.max(win_api::get_toolbar_height(monitor)),
                             );
                         } else {
-                            hitem.parked_position = Some(appinfo.position.y);
+                            hitem.parked_position =
+                                Some(appinfo.position.y.max(win_api::get_toolbar_height(monitor)));
                         }
                     } else if hitem.parked_position.is_some() {
                         win_api::set_app_position(hwnd!(hitem.hwnd), appinfo.position.x, -2000);
@@ -707,20 +757,13 @@ impl WindowHookHandler {
             }
         }
 
-        // update statusbar on ALL monitors so both indicators refresh
-        {
-            let border = BORDER_MANAGER.lock();
-            for i in 0..self.monitors.len() {
-                let ws_slots = self.get_workspace_indicator(i);
-                let mut bar = self.build_statusbar(i, self.show_statusbar(i));
-                bar.center = ws_slots;
-                _ = border.update_statusbar(i, bar);
-            }
+        let border = BORDER_MANAGER.lock();
+        for i in 0..self.monitors.len() {
+            _ = border.update_statusbar(i, self.build_statusbar(i, self.show_statusbar(i)));
         }
-
-        // update border rect for active app
         if self.current_active_app_hwnd > 0 {
             let h = self.current_active_app_hwnd;
+            drop(border);
             self.update_border(h);
         }
         Ok(())
@@ -728,21 +771,16 @@ impl WindowHookHandler {
     pub fn activate_workspace(&mut self, workspace: &str) {
         let cursor_monitor = win_api::get_monitor_index_from_cursor(&self.monitors);
         let ws_count = self.workspaces.len();
+        let current = self.active_workspace_for(cursor_monitor);
 
-        match workspace {
-            "Prev" => {
-                self.current_active_workspace =
-                    (self.current_active_workspace + ws_count - 1) % ws_count;
-            }
-            "Next" => {
-                self.current_active_workspace = (self.current_active_workspace + 1) % ws_count;
-            }
-            _ => {}
-        }
+        let next = match workspace {
+            "Prev" => (current + ws_count - 1) % ws_count,
+            "Next" => (current + 1) % ws_count,
+            _ => return,
+        };
 
-        // update active flag immediately so indicator reflects new state
-        for (idx, ws) in self.workspaces.iter_mut().enumerate() {
-            ws.active = self.current_active_workspace == idx;
+        if let Some(slot) = self.active_workspace_per_monitor.get_mut(cursor_monitor) {
+            *slot = next;
         }
 
         if let Err(err) = self.reorder_app_pos_in_workspace_for_monitor(cursor_monitor) {
@@ -755,18 +793,16 @@ impl WindowHookHandler {
             .get_active_app()
             .ok_or(anyhow::anyhow!("active app not found"))?
             .hwnd;
-
-        // Preserve the monitor the app currently lives on
         let monitor_index = self.monitor_index_for(active_hwnd);
-
+        let current = self.active_workspace_for(monitor_index);
         let count = self.workspaces.len();
         let workspace_index = match workspace {
-            "Prev" => (self.current_active_workspace + count - 1) % count,
-            "Next" => (self.current_active_workspace + 1) % count,
+            "Prev" => (current + count - 1) % count,
+            "Next" => (current + 1) % count,
             _ => anyhow::bail!("unknown workspace direction: {}", workspace),
         };
-
         self.assign_app_to_workspace(workspace_index, active_hwnd, monitor_index);
+        self.activate_workspace(workspace);
         Ok(())
     }
 }
@@ -802,7 +838,7 @@ impl WindowHook {
         {
             let mut h = handler.lock();
             let monitors = hook::win_api::get_all_monitors();
-            h.monitors = monitors; // set directly, skip update_monitors to avoid any lock issues
+            h.monitors = monitors;
         }
         std::thread::spawn(move || {
             while let Ok((ev, app_window)) = crate::hook::win_api::channel_receiver().recv() {
@@ -828,6 +864,14 @@ impl WindowHook {
                     }
                     WinEvent::ObjectLocationchange => {
                         if let Some(app_info) = app_window.get_app_info() {
+                            let time = Instant::now();
+                            if let Ok(res) = win_api::is_window_maximized(hwnd!(app_info.hwnd)) {
+                                if res {
+                                    let mut handler = handler.lock();
+                                    handler.fake_maximize();
+                                }
+                            }
+                            println!("maximize check {}ms", time.elapsed().as_millis());
                             handler
                                 .lock()
                                 .update_apps(app_info, WinEvent::ObjectLocationchange);
@@ -846,9 +890,15 @@ impl WindowHook {
                             handler.lock().delete_app(app_info);
                         }
                     }
-                    WinEvent::SystemMovesizeend => {}
-                    WinEvent::SystemMinimizeend => {}
-                    _ => {}
+                    WinEvent::SystemMovesizeend | WinEvent::SystemMinimizeend => {
+                        if let Some(app_info) = app_window.get_app_info() {
+                            let mut handler = handler.lock();
+                            handler.reposition_app_on_monitor(&app_info);
+                        }
+                    }
+                    _ => {
+                        // println!("EVENT {:?}", ev);
+                    }
                 }
             }
         });

@@ -34,8 +34,12 @@ lazy_static! {
     static ref APP_INFO_LIST: Mutex<HashMap<isize, AppInfo>> = Mutex::new(HashMap::new());
 }
 
-pub static TOOLBAR_HEIGHT: i32 = 0;
+// static TOOLBAR_HEIGHT: i32 = 25;
 pub static APP_WINDOW_PADDING: i32 = 0;
+
+pub fn get_toolbar_height(monitor: usize) -> i32 {
+    if monitor == 0 { 25 } else { 0 }
+}
 
 pub static WINEVENT_CHANNEL: OnceLock<(
     Sender<(WinEvent, AppWindow)>,
@@ -153,15 +157,16 @@ unsafe extern "system" fn monitor_enum_proc(
 
     if unsafe { GetMonitorInfoW(hmonitor, &mut mi as *mut _ as *mut _).as_bool() } {
         let monitor = mi.rcWork;
+        let len = monitors.len();
         monitors.push(MonitorInfo {
             handle: hmonitor.0 as isize,
-            top: monitor.top + TOOLBAR_HEIGHT,
+            top: monitor.top + get_toolbar_height(len),
             left: monitor.left,
             bottom: monitor.bottom,
             right: monitor.right,
             width: monitor.right - monitor.left,
-            height: monitor.bottom - monitor.top - TOOLBAR_HEIGHT,
-        });
+            height: monitor.bottom - monitor.top - get_toolbar_height(len),
+        })
     }
 
     true.into()
@@ -288,7 +293,16 @@ pub(crate) fn get_app_class(hwnd: HWND) -> Option<String> {
         None
     }
 }
+pub fn is_window_maximized(hwnd: HWND) -> anyhow::Result<bool> {
+    unsafe {
+        let mut placement = WINDOWPLACEMENT::default();
+        placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
 
+        GetWindowPlacement(hwnd, &mut placement)?;
+        let result = placement.showCmd == SW_SHOWMAXIMIZED.0 as u32;
+        Ok(result)
+    }
+}
 pub(crate) fn is_foreground(hwnd: HWND) -> bool {
     let result = unsafe { GetForegroundWindow() } == hwnd;
     result
