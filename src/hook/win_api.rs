@@ -1,9 +1,8 @@
-use crate::hook::api::Hwnd;
 use crate::hook::app_info::{AppPosition, AppSize};
 use crate::hook::border::BorderManager;
 use crate::hook::win_event::WinEvent;
 use crate::hook::{app_info::AppInfo, app_window::AppWindow};
-use anyhow::{Context, Result};
+use anyhow::Context;
 use flume::{Receiver, Sender};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -20,10 +19,7 @@ use windows::{
         Foundation::*,
         Graphics::{Dwm::*, Gdi::*},
         System::Threading::*,
-        UI::{
-            Input::KeyboardAndMouse::{SetActiveWindow, SetFocus},
-            WindowsAndMessaging::*,
-        },
+        UI::{Input::KeyboardAndMouse::SetFocus, WindowsAndMessaging::*},
     },
     core::{BOOL, PWSTR},
 };
@@ -129,13 +125,13 @@ pub struct MonitorInfo {
 pub fn get_all_monitors() -> Vec<MonitorInfo> {
     let mut v: Vec<MonitorInfo> = Vec::new();
     unsafe {
-        EnumDisplayMonitors(
+        _ = EnumDisplayMonitors(
             Some(HDC(0 as *mut c_void)),
             None,
             Some(monitor_enum_proc),
             LPARAM(&mut v as *mut _ as isize),
         );
-    }
+    };
     v.sort_by_key(|m| m.left);
     v
 }
@@ -405,14 +401,14 @@ pub(crate) fn set_app_size(hwnd: HWND, width: i32, height: i32) {
     if unsafe { IsWindow(Some(hwnd)) } == FALSE {
         return;
     }
-    unsafe { SetWindowPos(hwnd, None, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER) };
+    _ = unsafe { SetWindowPos(hwnd, None, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER) };
 }
 
 pub(crate) fn set_app_position(hwnd: HWND, x: i32, y: i32) {
     if unsafe { IsWindow(Some(hwnd)) } == FALSE {
         return;
     }
-    unsafe { SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
+    _ = unsafe { SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
 }
 
 pub(crate) fn set_app_size_position(
@@ -429,10 +425,10 @@ pub(crate) fn set_app_size_position(
     if disable_rounded {
         disable_rounded_corner(hwnd);
     }
-    unsafe { ShowWindow(hwnd, SW_RESTORE) };
+    _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
     let w = (width - APP_WINDOW_PADDING * 2).max(0);
     let h = (height - APP_WINDOW_PADDING * 2).max(0);
-    unsafe {
+    _ = unsafe {
         SetWindowPos(
             hwnd,
             None,
@@ -480,30 +476,14 @@ pub(crate) fn set_border_size_position(
     };
 }
 
-pub(crate) fn set_badge_position(
-    hwnd: HWND,
-    parent_hwnd: HWND,
-    rect: Rect,
-    width: i32,
-    height: i32,
-) {
-    if unsafe { IsWindow(Some(hwnd)) } == FALSE {
-        return;
-    }
-    let x = (rect.l - (width / 2)) + (rect.w / 2);
-    let y = rect.t;
-    _ = unsafe {
-        SetWindowPos(
-            hwnd,
-            Some(parent_hwnd),
-            x + APP_WINDOW_PADDING,
-            y + APP_WINDOW_PADDING + 5,
-            width,
-            height,
-            SWP_NOZORDER,
-        )
+pub fn close_app(hwnd: HWND) -> anyhow::Result<()> {
+    unsafe {
+        PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0))
+            .context("Failed to close an app")?
     };
+    Ok(())
 }
+
 pub fn get_monitor_index_from_cursor(monitors: &[MonitorInfo]) -> usize {
     let mut point = POINT { x: 0, y: 0 };
     _ = unsafe { GetCursorPos(&mut point) };
@@ -533,7 +513,7 @@ fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
         if IsIconic(hwnd) == TRUE {
             _ = ShowWindow(hwnd, SW_RESTORE);
         }
-        ShowWindow(hwnd, SW_SHOW);
+        _ = ShowWindow(hwnd, SW_SHOW);
 
         // Temporarily make topmost so SetForegroundWindow reliably fires
         _ = SetWindowPos(
