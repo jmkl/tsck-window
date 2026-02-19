@@ -43,6 +43,7 @@ const WM_SET_ACTIVE_MONITOR: u32 = WM_USER + 7;
 #[derive(Clone, Debug)]
 pub struct HwndItem {
     pub hwnd: Hwnd,
+    pub app_name: String,
     pub monitor: usize,
     pub parked_position: Option<i32>,
 }

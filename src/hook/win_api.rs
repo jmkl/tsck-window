@@ -34,7 +34,6 @@ lazy_static! {
     static ref APP_INFO_LIST: Mutex<HashMap<isize, AppInfo>> = Mutex::new(HashMap::new());
 }
 
-// static TOOLBAR_HEIGHT: i32 = 25;
 pub static APP_WINDOW_PADDING: i32 = 0;
 
 pub fn get_toolbar_height(monitor: usize) -> i32 {

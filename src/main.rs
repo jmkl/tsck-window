@@ -4,7 +4,7 @@ use std::{collections::HashMap, io::Write, process};
 use tsck_kee::{Event, Kee, TKeePair};
 use tsck_window::{
     hook::{ArcMutWHookHandler, SlotText, SystemInfo, WidgetSlots, WindowHook, format_speed},
-    with_handler,
+    slot_text, with_handler,
 };
 
 #[derive(Debug, NtekDes, NtekSer)]
@@ -178,7 +178,15 @@ fn spawn_command_interface(handler: ArcMutWHookHandler) {
                                 "list" => {
                                     with_handler!(handler, |hd| {
                                         for (idx, w) in hd.get_all_workspaces().iter().enumerate() {
-                                            println!("{:<5}:{} {:?}", idx, w.text, w.hwnds)
+                                            println!(
+                                                "{:<5}:{} {:#?}",
+                                                idx,
+                                                w.text,
+                                                w.hwnds
+                                                    .iter()
+                                                    .map(|f| f.app_name.clone())
+                                                    .collect::<Vec<_>>()
+                                            )
                                         }
                                     });
                                 }
@@ -226,22 +234,7 @@ fn spawn_hotkee(handler: ArcMutWHookHandler, ntek_config: NtekConfig) {
     })
     .run(kees);
 }
-macro_rules! text {
-    ($format:expr, $text:expr,$text2:expr) => {
-        SlotText {
-            text: format!($format, $text, $text2),
-            foreground: 0xFFFFFF,
-            background: 0x99000000,
-        }
-    };
-    ($format:expr, $text:expr) => {
-        SlotText {
-            text: format!($format, $text),
-            foreground: 0xFFFFFF,
-            background: 0x99000000,
-        }
-    };
-}
+
 fn spawn_widget(handler: ArcMutWHookHandler) {
     let handler = handler.clone();
     std::thread::spawn(move || {
@@ -252,23 +245,19 @@ fn spawn_widget(handler: ArcMutWHookHandler) {
             {
                 let mut h = handler.lock();
                 let usage = info.update();
-                h.set_widget(WidgetSlots {
-                    right: vec![
-                        text!(
+                h.set_slot_right(
+                    "c",
+                    vec![
+                        slot_text!(
                             "  ↓{} ↑{}",
                             format_speed(usage.net_download),
                             format_speed(usage.net_upload)
                         ),
-                        text!("  {:.1}%", usage.cpu_percent),
-                        text!("󰍛  {:.1}/{:.1} GB", usage.ram_used_gb, usage.ram_total_gb),
-                        SlotText {
-                            text: time,
-                            foreground: 0xFFFFFF,
-                            background: 0x99000000,
-                        },
+                        slot_text!("  {:.1}%", usage.cpu_percent),
+                        slot_text!("󰍛  {:.1}/{:.1} GB", usage.ram_used_gb, usage.ram_total_gb),
+                        slot_text!("{}", time),
                     ],
-                    ..Default::default()
-                });
+                );
             }
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
