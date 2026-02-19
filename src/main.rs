@@ -3,7 +3,7 @@ use ntek_derive::{NtekDes, NtekSer};
 use std::{collections::HashMap, io::Write, process};
 use tsck_kee::{Event, Kee, TKeePair};
 use tsck_window::{
-    hook::{ArcMutWHookHandler, SlotText, WidgetSlots, WindowHook},
+    hook::{ArcMutWHookHandler, SlotText, SystemInfo, WidgetSlots, WindowHook, format_speed},
     with_handler,
 };
 
@@ -29,14 +29,14 @@ impl CycleDirection {
 }
 #[derive(Debug, NtekDes, NtekSer)]
 enum WF {
-    MoveActiveWindow(Direction),
-    ResizeActiveWindow(Direction),
+    MoveActiveApp(Direction),
+    ResizeActiveApp(Direction),
     Debug,
     CycleColumn,
-    CycleWindowSizePosition,
+    CycleAppOnGrid,
     CycleActiveApp(CycleDirection),
-    CycleWindowWidth(CycleDirection),
-    CycleWindowHeight(CycleDirection),
+    CycleAppWidth(CycleDirection),
+    CycleAppHeight(CycleDirection),
     MoveToWorkspace(CycleDirection),
     ActivateWorkspace(CycleDirection),
 }
@@ -67,7 +67,7 @@ struct NtekConfig {
 impl WF {
     fn do_stuff(&self, handler: ArcMutWHookHandler, conf: &NtekConfig) {
         match self {
-            WF::MoveActiveWindow(direction) => {
+            WF::MoveActiveApp(direction) => {
                 let mut hd = handler.lock();
                 {
                     let inc = conf.move_inc;
@@ -82,7 +82,7 @@ impl WF {
                     }
                 };
             }
-            WF::ResizeActiveWindow(direction) => {
+            WF::ResizeActiveApp(direction) => {
                 let mut hd = handler.lock();
                 let inc = conf.size_inc;
                 let (w, h) = match direction {
@@ -98,22 +98,23 @@ impl WF {
                     eprintln!("Fuck {err}");
                 }
             }
-            WF::CycleWindowSizePosition => {
+            WF::CycleAppOnGrid => {
                 let grid = conf
                     .workspace_grid
                     .iter()
                     .map(|fs| (fs.x, fs.y, fs.width, fs.height))
                     .collect::<Vec<_>>();
-                handler.lock().cycle_position(grid);
+                handler.lock().cycle_app_on_grid(grid);
             }
-            WF::CycleWindowHeight(direction) => {
-                handler.lock().cycle_window_height(direction.as_str());
+            WF::CycleAppHeight(direction) => {
+                handler.lock().cycle_app_height(direction.as_str());
             }
-            WF::CycleWindowWidth(direction) => {
-                handler.lock().cycle_window_width(direction.as_str());
+            WF::CycleAppWidth(direction) => {
+                handler.lock().cycle_app_width(direction.as_str());
             }
             WF::CycleColumn => {
-                handler.lock().cycle_column();
+                let mut handler = handler.lock();
+                handler.cycle_column();
             }
             WF::CycleActiveApp(direction) => {
                 if let Err(err) = handler.lock().cycle_active_app(direction.as_str()) {
@@ -225,23 +226,49 @@ fn spawn_hotkee(handler: ArcMutWHookHandler, ntek_config: NtekConfig) {
     })
     .run(kees);
 }
-fn spawn_clock(handler: ArcMutWHookHandler) {
+macro_rules! text {
+    ($format:expr, $text:expr,$text2:expr) => {
+        SlotText {
+            text: format!($format, $text, $text2),
+            foreground: 0xFFFFFF,
+            background: 0x99000000,
+        }
+    };
+    ($format:expr, $text:expr) => {
+        SlotText {
+            text: format!($format, $text),
+            foreground: 0xFFFFFF,
+            background: 0x99000000,
+        }
+    };
+}
+fn spawn_widget(handler: ArcMutWHookHandler) {
     let handler = handler.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(1));
+        let mut info = SystemInfo::new();
         loop {
-            let time = chrono::Local::now().format("%H:%M:%S").to_string();
+            let time = chrono::Local::now().format("%H:%M %a, %d %h").to_string();
             {
                 let mut h = handler.lock();
+                let usage = info.update();
                 h.set_widget(WidgetSlots {
-                    center: vec![SlotText {
-                        text: time,
-                        foreground: 0xFFFFFF,
-                        background: 0,
-                    }],
+                    right: vec![
+                        text!(
+                            "  ↓{} ↑{}",
+                            format_speed(usage.net_download),
+                            format_speed(usage.net_upload)
+                        ),
+                        text!("  {:.1}%", usage.cpu_percent),
+                        text!("󰍛  {:.1}/{:.1} GB", usage.ram_used_gb, usage.ram_total_gb),
+                        SlotText {
+                            text: time,
+                            foreground: 0xFFFFFF,
+                            background: 0x99000000,
+                        },
+                    ],
                     ..Default::default()
                 });
-                h.refresh_all_statusbars();
             }
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
@@ -256,7 +283,7 @@ fn main() -> anyhow::Result<()> {
         ntek_config.size_factor.clone(),
     )
     .bind(|handler| {
-        spawn_clock(handler.clone());
+        spawn_widget(handler.clone());
         spawn_hotkee(handler, ntek_config);
     })
     .run();

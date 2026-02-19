@@ -25,7 +25,7 @@ use windows::{
     core::*,
 };
 
-use crate::hook::api::Hwnd;
+use crate::hook::{api::Hwnd, win_api::get_toolbar_height};
 
 // Custom messages
 const WM_UPDATE_COLOR: u32 = WM_USER + 1;
@@ -387,6 +387,7 @@ struct WindowData {
     statusbar: Option<StatusBar>,
     statusbar_format: Option<IDWriteTextFormat>,
     is_active_monitor: bool,
+    monitor_index: usize,
 }
 
 struct TransparentBorderWindow {
@@ -509,6 +510,7 @@ impl TransparentBorderWindow {
             statusbar: None,
             statusbar_format: None,
             is_active_monitor: true,
+            monitor_index: monitor_index.unwrap_or(0),
         });
 
         unsafe {
@@ -571,33 +573,28 @@ impl TransparentBorderWindow {
                         let _ = GetClientRect(hwnd, &mut client_rect);
                         let screen_width = (client_rect.right - client_rect.left) as f32;
 
-                        // draw statusbar and get its height for rect offset
-                        let bar_height = if let Some(ref bar) = data.statusbar {
+                        if let Some(ref bar) = data.statusbar {
                             match bar.always_show {
                                 Visibility::Always => {
                                     draw_statusbar(data, bar, screen_width);
-                                    bar.height
                                 }
                                 Visibility::OnFocus => {
                                     if data.is_active_monitor {
                                         draw_statusbar(data, bar, screen_width);
                                     }
-                                    bar.height
                                 }
-                                Visibility::Disable => bar.height,
+                                Visibility::Disable => {}
                             }
-                        } else {
-                            0.0
                         };
-
-                        // draw border rect offset below statusbar
+                        let toolbar_height = get_toolbar_height(data.monitor_index);
                         let half = data.thickness / 2.0;
                         let rounded_rect = D2D1_ROUNDED_RECT {
                             rect: D2D_RECT_F {
                                 left: data.rect_x + half,
-                                top: data.rect_y + half, // no bar_height offset here
+                                top: data.rect_y + half + toolbar_height as f32,
                                 right: data.rect_x + data.rect_width - half,
-                                bottom: data.rect_y + data.rect_height - half,
+                                bottom: data.rect_y + data.rect_height - half
+                                    + toolbar_height as f32,
                             },
                             radiusX: data.corner_radius,
                             radiusY: data.corner_radius,
