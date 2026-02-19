@@ -22,3 +22,27 @@ macro_rules! with_handler {
         $block
     };
 }
+#[macro_export]
+macro_rules! slot_text {
+    ($format:expr, $text:expr,$text2:expr) => {
+        SlotText {
+            text: format!($format, $text, $text2),
+            foreground: 0xFFFFFF,
+            background: 0x99000000,
+        }
+    };
+    ($format:expr, $text:expr,$foreground:expr,$background:expr) => {
+        SlotText {
+            text: format!($format, $text),
+            foreground: $foreground,
+            background: $background,
+        }
+    };
+    ($format:expr, $text:expr) => {
+        SlotText {
+            text: format!($format, $text),
+            foreground: 0xFFFFFF,
+            background: 0x99000000,
+        }
+    };
+}

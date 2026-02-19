@@ -4,14 +4,18 @@ use crate::{
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
         app_window::AppWindow,
         border::{HwndItem, SlotText, StatusBar, StatusBarFont, Visibility, Workspace},
+        color,
         win_api::{self, BORDER_MANAGER, MonitorInfo},
         win_event::WinEvent,
     },
-    hwnd,
+    hwnd, slot_text,
 };
 
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use windows::Win32::UI::WindowsAndMessaging::{GW_HWNDNEXT, GetForegroundWindow, GetWindow};
 
 pub type MonitorWidth = i32;
@@ -37,19 +41,19 @@ pub enum WorkspaceIndicatorPosition {
 }
 
 pub struct WidgetSlots {
-    pub left: Vec<SlotText>,
-    pub center: Vec<SlotText>,
-    pub right: Vec<SlotText>,
+    pub left: BTreeMap<String, Vec<SlotText>>,
+    pub center: BTreeMap<String, Vec<SlotText>>,
+    pub right: BTreeMap<String, Vec<SlotText>>,
     pub workspace_indicator: WorkspaceIndicatorPosition,
 }
 
 impl Default for WidgetSlots {
     fn default() -> Self {
         Self {
-            left: vec![],
-            center: vec![],
-            right: vec![],
-            workspace_indicator: WorkspaceIndicatorPosition::Center, // default behavior
+            left: BTreeMap::new(),
+            center: BTreeMap::new(),
+            right: BTreeMap::new(),
+            workspace_indicator: WorkspaceIndicatorPosition::Center,
         }
     }
 }
@@ -158,28 +162,31 @@ impl WindowHookHandler {
     //         right: self.statusbar_right.clone(),
     //     }
     // }
+    fn flatten_slots(map: &BTreeMap<String, Vec<SlotText>>) -> Vec<SlotText> {
+        map.values().flatten().cloned().collect()
+    }
     fn build_statusbar(&mut self, monitor_index: usize, always_show: Visibility) -> StatusBar {
         let ws = self.get_workspace_indicator(monitor_index);
 
-        let mut left = self.user_widgets.left.clone();
-        let mut center = self.user_widgets.center.clone();
-        let mut right = self.user_widgets.right.clone();
+        let mut left = Self::flatten_slots(&self.user_widgets.left);
+        let mut center = Self::flatten_slots(&self.user_widgets.center);
+        let mut right = Self::flatten_slots(&self.user_widgets.right);
 
         match self.user_widgets.workspace_indicator {
             WorkspaceIndicatorPosition::Left => {
-                let mut merged = ws;
-                merged.extend(left);
-                left = merged;
+                let mut m = ws;
+                m.extend(left);
+                left = m;
             }
             WorkspaceIndicatorPosition::Center => {
-                let mut merged = ws;
-                merged.extend(center);
-                center = merged;
+                let mut m = ws;
+                m.extend(center);
+                center = m;
             }
             WorkspaceIndicatorPosition::Right => {
-                let mut merged = ws;
-                merged.extend(right);
-                right = merged;
+                let mut m = ws;
+                m.extend(right);
+                right = m;
             }
             WorkspaceIndicatorPosition::None => {}
         }
@@ -214,18 +221,33 @@ impl WindowHookHandler {
             .collect()
     }
 
-    pub fn set_statusbar_center(&mut self, slots: Vec<SlotText>) {
-        self.statusbar_center = slots;
-    }
-    pub fn set_statusbar_left(&mut self, slots: Vec<SlotText>) {
-        self.statusbar_left = slots;
-    }
-    pub fn set_statusbar_right(&mut self, slots: Vec<SlotText>) {
-        self.statusbar_right = slots;
+    pub fn set_slot_left(&mut self, key: impl Into<String>, slots: Vec<SlotText>) {
+        self.user_widgets.left.insert(key.into(), slots);
+        self.refresh_all_statusbars();
     }
 
-    pub fn set_widget(&mut self, slots: WidgetSlots) {
-        self.user_widgets = slots;
+    pub fn set_slot_center(&mut self, key: impl Into<String>, slots: Vec<SlotText>) {
+        self.user_widgets.center.insert(key.into(), slots);
+        self.refresh_all_statusbars();
+    }
+
+    pub fn set_slot_right(&mut self, key: impl Into<String>, slots: Vec<SlotText>) {
+        self.user_widgets.right.insert(key.into(), slots);
+        self.refresh_all_statusbars();
+    }
+
+    pub fn remove_slot_left(&mut self, key: &str) {
+        self.user_widgets.left.remove(key);
+        self.refresh_all_statusbars();
+    }
+
+    pub fn remove_slot_center(&mut self, key: &str) {
+        self.user_widgets.center.remove(key);
+        self.refresh_all_statusbars();
+    }
+
+    pub fn remove_slot_right(&mut self, key: &str) {
+        self.user_widgets.right.remove(key);
         self.refresh_all_statusbars();
     }
 
@@ -252,7 +274,7 @@ impl WindowHookHandler {
             // since ws.active is only used for legacy checks, drive it from app_monitor
             ws.active = self
                 .active_workspace_per_monitor
-                .get(0) // or app_monitor if you want per-monitor
+                .get(0)
                 .copied()
                 .unwrap_or(0)
                 == idx;
@@ -304,8 +326,28 @@ impl WindowHookHandler {
         match event {
             WinEvent::ObjectCreate => {
                 if let Some(idx) = win_api::get_monitor_index(hwnd!(app.hwnd), &self.monitors) {
-                    // always assign new apps to workspace 0, not current active
-                    self.assign_app_to_workspace(0, app.hwnd, idx);
+                    self.assign_app_to_workspace(0, app.hwnd, app.exe.clone(), idx);
+                }
+            }
+            WinEvent::ObjectShow => {
+                if let Some(monitor_index) =
+                    win_api::get_monitor_index(hwnd!(app.hwnd), &self.monitors)
+                {
+                    let active_workspace = self
+                        .active_workspace_per_monitor
+                        .get(monitor_index)
+                        .copied()
+                        .unwrap_or(0);
+                    self.assign_app_to_workspace(
+                        active_workspace,
+                        app.hwnd,
+                        app.exe.clone(),
+                        monitor_index,
+                    );
+                    println!(
+                        "Monitor Index {} Active Monitor {}",
+                        monitor_index, active_workspace
+                    );
                 }
             }
             WinEvent::Done => {
@@ -317,6 +359,8 @@ impl WindowHookHandler {
                     self.update_border(app.hwnd);
                     self.update_app_parking_position(app.hwnd, app.position.y);
                     self.force_border_to_top(app.hwnd);
+                    self.update_widget_active_app(&app.exe, &app.title);
+                    self.refresh_all_statusbars();
                 }
             }
             _ => {}
@@ -337,6 +381,15 @@ impl WindowHookHandler {
 
     pub fn delete_app(&mut self, app: AppInfo) {
         self.apps.remove(&app.hwnd);
+        if let Some(ws) = self
+            .workspaces
+            .iter_mut()
+            .find(|ws| ws.hwnds.iter().any(|h| h.hwnd == app.hwnd))
+        {
+            ws.hwnds.retain(|h| h.hwnd != app.hwnd);
+            self.current_active_app_hwnd = -1;
+            self.update_border(self.current_active_app_hwnd);
+        }
     }
 
     pub fn update_monitors(&mut self, monitors: Vec<MonitorInfo>) {
@@ -465,17 +518,30 @@ impl WindowHookHandler {
         }
 
         if let Some(&target_hwnd) = hwnd_items.get(self.active_app_index) {
-            if let Some(app) = self.apps.get(&target_hwnd) {
-                println!("Active App {}", app.exe);
-                win_api::bring_to_front(hwnd!(app.hwnd), border_hwnd);
-                self.current_active_app_hwnd = app.hwnd;
-                self.update_border(app.hwnd);
-            }
+            let (hwnd, exe, title) = {
+                let app = self
+                    .apps
+                    .get(&target_hwnd)
+                    .ok_or(anyhow::anyhow!("Cant find the app"))?;
+                (app.hwnd, app.exe.clone(), app.title.clone())
+            };
+            win_api::bring_to_front(hwnd!(hwnd), border_hwnd);
+            self.current_active_app_hwnd = hwnd;
+            self.update_border(hwnd);
+            self.update_widget_active_app(&exe, &title);
         }
 
         Ok(())
     }
-
+    fn update_widget_active_app(&mut self, app_name: &str, title: &str) {
+        self.set_slot_left(
+            "active-app",
+            vec![
+                slot_text!("{}", app_name, color::FOREGROUND, color::PRIMARY),
+                slot_text!("{}", title, color::FOREGROUND, color::BACKGROUND),
+            ],
+        );
+    }
     pub fn cycle_column(&mut self) -> Option<()> {
         let app = self.get_active_app()?;
         app.column = match app.column {
@@ -642,13 +708,30 @@ impl WindowHookHandler {
         Some(())
     }
 
-    fn assign_app_to_workspace(&mut self, workspace_index: usize, hwnd: isize, monitor: usize) {
+    fn get_active_workspace_monitor(&self) -> (usize, usize) {
+        let active_monitor = win_api::get_monitor_index_from_cursor(&self.monitors);
+        let active_workspace = self
+            .active_workspace_per_monitor
+            .get(active_monitor)
+            .copied()
+            .unwrap_or(0);
+        (active_monitor, active_workspace)
+    }
+
+    fn assign_app_to_workspace(
+        &mut self,
+        workspace_index: usize,
+        hwnd: isize,
+        app_name: String,
+        monitor: usize,
+    ) {
         if self.workspaces.is_empty() {
             self.workspaces.push(Workspace {
                 text: "Main".to_string(),
                 active: true,
                 hwnds: vec![HwndItem {
                     hwnd,
+                    app_name,
                     monitor,
                     parked_position: None,
                 }],
@@ -661,6 +744,7 @@ impl WindowHookHandler {
             if let Some(ws) = self.workspaces.get_mut(workspace_index) {
                 ws.hwnds.push(HwndItem {
                     hwnd,
+                    app_name,
                     monitor,
                     parked_position: None,
                 });
@@ -789,19 +873,24 @@ impl WindowHookHandler {
     }
 
     pub fn move_active_app_to_workspace(&mut self, workspace: &str) -> anyhow::Result<()> {
-        let active_hwnd = self
-            .get_active_app()
-            .ok_or(anyhow::anyhow!("active app not found"))?
-            .hwnd;
-        let monitor_index = self.monitor_index_for(active_hwnd);
-        let current = self.active_workspace_for(monitor_index);
+        let (hwnd, exe) = {
+            let app = self
+                .get_active_app()
+                .ok_or(anyhow::anyhow!("Cant find active app"))?;
+            (app.hwnd, app.exe.clone())
+        };
+        let (monitor_index, current) = {
+            let monitor_index = self.monitor_index_for(hwnd);
+            let current = self.active_workspace_for(monitor_index);
+            (monitor_index, current)
+        };
         let count = self.workspaces.len();
         let workspace_index = match workspace {
             "Prev" => (current + count - 1) % count,
             "Next" => (current + 1) % count,
             _ => anyhow::bail!("unknown workspace direction: {}", workspace),
         };
-        self.assign_app_to_workspace(workspace_index, active_hwnd, monitor_index);
+        self.assign_app_to_workspace(workspace_index, hwnd, exe, monitor_index);
         self.activate_workspace(workspace);
         Ok(())
     }
@@ -864,17 +953,16 @@ impl WindowHook {
                     }
                     WinEvent::ObjectLocationchange => {
                         if let Some(app_info) = app_window.get_app_info() {
-                            let time = Instant::now();
                             if let Ok(res) = win_api::is_window_maximized(hwnd!(app_info.hwnd)) {
                                 if res {
                                     let mut handler = handler.lock();
                                     handler.fake_maximize();
                                 }
                             }
-                            println!("maximize check {}ms", time.elapsed().as_millis());
-                            handler
-                                .lock()
-                                .update_apps(app_info, WinEvent::ObjectLocationchange);
+                            {
+                                let mut handler = handler.lock();
+                                handler.update_apps(app_info, WinEvent::ObjectLocationchange);
+                            }
                         }
                     }
                     WinEvent::SystemForeground => {
