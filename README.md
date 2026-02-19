@@ -14,3 +14,4 @@ the code mostly wrote by LLM. so it all over the place.
         - active app name
         - active app title
 - [ ] make them widget clickable?
+- [ ] update all command function to respect statusbar height

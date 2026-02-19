@@ -791,13 +791,12 @@ unsafe fn draw_statusbar(data: &WindowData, bar: &StatusBar, screen_width: f32) 
         let wide: Vec<u16> = s.text.encode_utf16().collect();
         measure_text_width_layout(&data.dwrite_factory, fmt, &wide) + pad * 2.0 + 2.0
     };
-    let y = 2.0;
+    let y = 0.0;
     draw_slots(data, fmt, &bar.left, 4.0, 0.0, h, pad, false);
 
     let center_total: f32 = bar.center.iter().map(|s| measure(s)).sum();
     let center_x = (screen_width - center_total) / 2.0;
     draw_slots(data, fmt, &bar.center, center_x, y, h, pad, false);
-
     draw_slots(data, fmt, &bar.right, screen_width - 4.0, y, h, pad, true);
 }
 

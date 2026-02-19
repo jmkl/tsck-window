@@ -200,7 +200,7 @@ impl WindowHookHandler {
                 size: 10.0,
             },
             always_show,
-            height: 20.0,
+            height: win_api::get_toolbar_height(monitor_index) as f32,
             padding: 10.0,
         }
     }
@@ -251,7 +251,7 @@ impl WindowHookHandler {
         self.refresh_all_statusbars();
     }
 
-    pub fn refresh_all_statusbars(&mut self) {
+    fn refresh_all_statusbars(&mut self) {
         let border = BORDER_MANAGER.lock();
         for i in 0..self.monitors.len() {
             _ = border.update_statusbar(i, self.build_statusbar(i, self.show_statusbar(i)));
@@ -445,12 +445,12 @@ impl WindowHookHandler {
         SizeRatio,
         Column,
     )> {
-        let (moni_left, moni_w, moni_h) = {
+        let (moni_left, moni_w, moni_h, monitor_index) = {
             let active_hwnd = self.current_active_app_hwnd;
             let monitor_idx = self.monitor_index_for(active_hwnd);
             let monitor = self.monitors.get(monitor_idx)?;
 
-            (monitor.left, monitor.width, monitor.height)
+            (monitor.left, monitor.width, monitor.height, monitor_idx)
         };
         let (active_hwnd, pos, size, ratio, column) = {
             let app = self.get_active_app()?;
@@ -664,10 +664,11 @@ impl WindowHookHandler {
     pub fn cycle_app_on_grid(&mut self, grid: Vec<(f32, f32, f32, f32)>) -> Option<()> {
         let (moni_left, moni_w, moni_h, active_hwnd, pos, size, px, py, _ratio, _column) =
             self.get_app_props()?;
+        let toolbar_height = win_api::get_toolbar_height(self.monitor_index_for(active_hwnd));
         self.app_position = (self.app_position + 1) % grid.len();
         if let Some((x, y, w, h)) = grid.get(self.app_position) {
             let x = moni_left + ((moni_w as f32 * x) as i32 - (px / 2));
-            let y = (moni_h as f32 * y) as i32 - (py / 2);
+            let y = (moni_h as f32 * y) as i32 - (py / 2) + toolbar_height;
             let w = (moni_w as f32 * w) as i32 + px;
             let h = (moni_h as f32 * h) as i32 + py;
             animation::animate_window(

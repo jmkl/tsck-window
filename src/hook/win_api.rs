@@ -1,4 +1,3 @@
-#![allow(unused)]
 use crate::hook::api::Hwnd;
 use crate::hook::app_info::{AppPosition, AppSize};
 use crate::hook::border::BorderManager;
@@ -37,7 +36,7 @@ lazy_static! {
 pub static APP_WINDOW_PADDING: i32 = 0;
 
 pub fn get_toolbar_height(monitor: usize) -> i32 {
-    if monitor == 0 { 25 } else { 0 }
+    if monitor == 0 { 28 } else { 0 }
 }
 
 pub static WINEVENT_CHANNEL: OnceLock<(
@@ -469,7 +468,7 @@ pub(crate) fn set_border_size_position(
     let w = (width - APP_WINDOW_PADDING * 2).max(0);
     let h = (height - APP_WINDOW_PADDING * 2).max(0);
     unsafe {
-        SetWindowPos(
+        _ = SetWindowPos(
             hwnd,
             Some(parent_hwnd),
             x + APP_WINDOW_PADDING,
@@ -477,7 +476,7 @@ pub(crate) fn set_border_size_position(
             w,
             h,
             SWP_NOZORDER,
-        )
+        );
     };
 }
 
@@ -493,7 +492,7 @@ pub(crate) fn set_badge_position(
     }
     let x = (rect.l - (width / 2)) + (rect.w / 2);
     let y = rect.t;
-    unsafe {
+    _ = unsafe {
         SetWindowPos(
             hwnd,
             Some(parent_hwnd),
@@ -507,7 +506,7 @@ pub(crate) fn set_badge_position(
 }
 pub fn get_monitor_index_from_cursor(monitors: &[MonitorInfo]) -> usize {
     let mut point = POINT { x: 0, y: 0 };
-    unsafe { GetCursorPos(&mut point) };
+    _ = unsafe { GetCursorPos(&mut point) };
     let hmonitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     monitors
         .iter()
@@ -532,12 +531,12 @@ fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
             return;
         }
         if IsIconic(hwnd) == TRUE {
-            ShowWindow(hwnd, SW_RESTORE);
+            _ = ShowWindow(hwnd, SW_RESTORE);
         }
         ShowWindow(hwnd, SW_SHOW);
 
         // Temporarily make topmost so SetForegroundWindow reliably fires
-        SetWindowPos(
+        _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
             0,
@@ -546,9 +545,9 @@ fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
             0,
             SWP_NOMOVE | SWP_NOSIZE,
         );
-        SetForegroundWindow(hwnd);
+        _ = SetForegroundWindow(hwnd);
         // Remove topmost — stack just above the border overlay for this monitor
-        SetWindowPos(
+        _ = SetWindowPos(
             hwnd,
             Some(HWND_NOTOPMOST),
             0,
@@ -561,7 +560,7 @@ fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
     }
 }
 pub fn force_border_to_front(hwnd: HWND) {
-    unsafe {
+    _ = unsafe {
         SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
@@ -580,10 +579,10 @@ fn force_bring_to_front(hwnd: HWND) {
         let current_thread = GetCurrentThreadId();
         let fg_thread = GetWindowThreadProcessId(hwnd_foreground, None);
 
-        AttachThreadInput(current_thread, fg_thread, true);
-        SetForegroundWindow(hwnd);
-        SetFocus(Some(hwnd));
-        BringWindowToTop(hwnd);
-        AttachThreadInput(current_thread, fg_thread, false);
+        _ = AttachThreadInput(current_thread, fg_thread, true);
+        _ = SetForegroundWindow(hwnd);
+        _ = SetFocus(Some(hwnd));
+        _ = BringWindowToTop(hwnd);
+        _ = AttachThreadInput(current_thread, fg_thread, false);
     }
 }
