@@ -34,8 +34,7 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_WindowsAndMessaging"
 ] }
 
-[dev-dependencies]
 tsck-kee = { path = "../tsck-kee" }
 tsck-derive = {path="../tsck-derive"}
-ntek = {path = "E:/_CODE/rust/ntek-lang/crates/ntek-lib"}
-ntek-derive = {path = "E:/_CODE/rust/ntek-lang/crates/ntek-derive"}
+ntek = {path = "../../../ntek-lang/crates/ntek-lib"}
+ntek-derive = {path = "../../../ntek-lang/crates/ntek-derive"}

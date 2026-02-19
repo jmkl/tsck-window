@@ -1,3 +1,5 @@
+size_factor = [1.0, 0.75, 0.666666, 0.5, 0.333333, 0.25]
+
 workspace_grid = [
       { width: 1.0, height: 1.0, x: 0.0,  y  : 0.0   },
       { width: 0.5, height: 1.0, x: 0.0,  y  : 0.0   },
@@ -11,11 +13,12 @@ workspace_grid = [
 
 ]
 workspaces = [
-  "Work",
-  "Browsing",
-  "Files",
+  "☀Work",
+  "✨Browsing",
+  "💀Files",
 ]
 blacklist = [
+    "tsck.exe",
     "alacritty.exe",
     "TextInputHost.exe",
     "msedgewebview2.exe",
@@ -23,14 +26,7 @@ blacklist = [
     "StartMenuExperienceHost.exe",
     "SearchHost.exe"
 ]
-workspace_apps = [
-   [
-     "Zed.exe",
-     "zen.exe",
-     "wezterm-gui.exe"
-   ],
-   ["chrome.exe"]
-]
+
 move_inc = 50
 size_inc = 50
 hotkeys = {
