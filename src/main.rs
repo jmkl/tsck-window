@@ -3,7 +3,7 @@ use ntek_derive::{NtekDes, NtekSer};
 use std::{collections::HashMap, io::Write, process};
 use tsck_kee::{Event, Kee, TKeePair};
 use tsck_window::{
-    hook::{ArcMutWHookHandler, WindowHook},
+    hook::{ArcMutWHookHandler, SlotText, WidgetSlots, WindowHook},
     with_handler,
 };
 
@@ -55,7 +55,6 @@ struct WsGrid {
 
 #[derive(Debug, NtekDes, NtekSer)]
 struct NtekConfig {
-    workspace_apps: Vec<Vec<String>>,
     workspace_grid: Vec<WsGrid>,
     workspaces: Vec<String>,
     move_inc: i32,
@@ -226,6 +225,28 @@ fn spawn_hotkee(handler: ArcMutWHookHandler, ntek_config: NtekConfig) {
     })
     .run(kees);
 }
+fn spawn_clock(handler: ArcMutWHookHandler) {
+    let handler = handler.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        loop {
+            let time = chrono::Local::now().format("%H:%M:%S").to_string();
+            {
+                let mut h = handler.lock();
+                h.set_widget(WidgetSlots {
+                    center: vec![SlotText {
+                        text: time,
+                        foreground: 0xFFFFFF,
+                        background: 0,
+                    }],
+                    ..Default::default()
+                });
+                h.refresh_all_statusbars();
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+}
 fn main() -> anyhow::Result<()> {
     let ntek_config =
         ntek::from_str::<NtekConfig>(include_str!("../config.ntek")).expect("failed reading shirt");
@@ -234,7 +255,10 @@ fn main() -> anyhow::Result<()> {
         ntek_config.workspaces.clone(),
         ntek_config.size_factor.clone(),
     )
-    .bind(|handler| spawn_hotkee(handler, ntek_config))
+    .bind(|handler| {
+        spawn_clock(handler.clone());
+        spawn_hotkee(handler, ntek_config);
+    })
     .run();
     Ok(())
 }

@@ -6,5 +6,6 @@ mod border;
 mod macros;
 mod win_api;
 mod win_event;
-pub use api::{ArcMutWHookHandler, WindowHook};
-pub use win_event::WindowEvent::*;
+pub use api::{ArcMutWHookHandler, WidgetSlots, WindowHook};
+pub use border::SlotText;
+pub use win_event::WinEvent::*;
