@@ -3,7 +3,7 @@ use ntek_derive::{NtekDes, NtekSer};
 use std::{collections::HashMap, io::Write, process};
 use tsck_kee::{Event, Kee, TKeePair};
 use tsck_window::{
-    hook::{ArcMutWHookHandler, SlotText, SystemInfo, WidgetSlots, WindowHook, format_speed},
+    hook::{ArcMutWHookHandler, SlotText, SystemInfo, WindowHook, format_speed},
     slot_text, with_handler,
 };
 
@@ -269,6 +269,7 @@ fn spawn_widget(handler: ArcMutWHookHandler) {
         }
     });
 }
+
 fn main() -> anyhow::Result<()> {
     let ntek_config =
         ntek::from_str::<NtekConfig>(include_str!("../config.ntek")).expect("failed reading shirt");

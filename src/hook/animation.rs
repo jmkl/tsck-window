@@ -200,7 +200,6 @@ pub fn animate_window(
             );
 
             unsafe {
-                // Defer window positioning for smoother updates
                 let hdwp = BeginDeferWindowPos(1);
                 if let Ok(hdwp) = hdwp {
                     let _ = DeferWindowPos(
