@@ -3,10 +3,6 @@ name = "tsck-window"
 version = "0.1.0"
 edition = "2024"
 
-[[example]]
-name ="hk"
-path = "examples/hk.rs"
-
 
 
 [dependencies]
