@@ -411,13 +411,13 @@ impl WindowHookHandler {
         self.apps.get_mut(&self.current_active_app_hwnd)
     }
 
-    fn get_rect_padding(&self, hwnd: isize) -> (i32, i32) {
-        let dwm_rect = win_api::get_dwm_rect(hwnd!(hwnd), 0);
-        let rect = win_api::get_rect(hwnd!(hwnd));
-        let x = rect.0.width - dwm_rect.w;
-        let y = rect.0.height - dwm_rect.h;
-        (x, y)
-    }
+    // fn get_rect_padding(&self, hwnd: isize) -> (i32, i32) {
+    //     let dwm_rect = win_api::get_dwm_rect(hwnd!(hwnd), 0);
+    //     let rect = win_api::get_rect(hwnd!(hwnd));
+    //     let x = rect.0.width - dwm_rect.w;
+    //     let y = rect.0.height - dwm_rect.h;
+    //     (x, y)
+    // }
 
     pub fn set_position(&mut self, x: i32, y: i32) {
         if let Some(app) = self.get_active_app() {
@@ -462,7 +462,7 @@ impl WindowHookHandler {
                 app.column.clone(),
             )
         };
-        let (px, py) = self.get_rect_padding(active_hwnd);
+        let (px, py) = win_api::get_rect_padding(active_hwnd);
         Some((
             moni_left,
             moni_w,

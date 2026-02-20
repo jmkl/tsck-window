@@ -355,6 +355,13 @@ pub(crate) fn get_dwm_rect(hwnd: HWND, thickness: i32) -> Rect {
         h: rect.bottom - rect.top,
     }
 }
+pub fn get_rect_padding(hwnd: isize) -> (i32, i32) {
+    let dwm_rect = get_dwm_rect(crate::hwnd!(hwnd), 0);
+    let rect = get_rect(crate::hwnd!(hwnd));
+    let x = rect.0.width - dwm_rect.w;
+    let y = rect.0.height - dwm_rect.h;
+    (x, y)
+}
 
 pub(crate) fn get_app_title(hwnd: HWND) -> Option<String> {
     unsafe {
@@ -364,6 +371,7 @@ pub(crate) fn get_app_title(hwnd: HWND) -> Option<String> {
         }
         let mut buffer: Vec<u16> = vec![0; (length + 1) as usize];
         let copied = GetWindowTextW(hwnd, &mut buffer);
+
         if copied > 0 {
             buffer.truncate(copied as usize);
             Some(OsString::from_wide(&buffer).to_string_lossy().into_owned())

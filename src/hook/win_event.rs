@@ -1,12 +1,10 @@
-use std::str::FromStr;
-
 macro_rules! win_event_builder {
   ($event_name:ident , $( ($int_val:expr,  $str_val:expr, $enum_val:ident) ),* $(,)?) => {
         #[derive(Debug, Clone, Copy)]
         pub enum $event_name {
           $($enum_val),*
         }
-        impl FromStr for $event_name{
+        impl std::str::FromStr for $event_name{
           type Err = ();
           fn from_str(s:&str)->Result<Self,Self::Err>{
             match s{
