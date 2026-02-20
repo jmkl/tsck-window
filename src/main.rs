@@ -33,6 +33,7 @@ enum WF {
     ResizeActiveApp(Direction),
     Debug,
     CycleColumn,
+    CloseActiveApp,
     CycleAppOnGrid,
     CycleActiveApp(CycleDirection),
     CycleAppWidth(CycleDirection),
@@ -131,6 +132,11 @@ impl WF {
             WF::ActivateWorkspace(worskpace) => {
                 with_handler!(handler, |hd| {
                     hd.activate_workspace(worskpace.as_str());
+                });
+            }
+            WF::CloseActiveApp => {
+                with_handler!(handler, |hd| {
+                    hd.close_active_app();
                 });
             }
         }

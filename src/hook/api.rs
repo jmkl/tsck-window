@@ -872,7 +872,18 @@ impl WindowHookHandler {
             eprintln!("activate_workspace => {err}");
         }
     }
-
+    pub fn close_active_app(&mut self) -> anyhow::Result<()> {
+        let (hwnd, exe) = {
+            let app = self
+                .get_active_app()
+                .ok_or(anyhow::anyhow!("Cant find active app"))?;
+            (app.hwnd, app.exe.clone())
+        };
+        if let Err(err) = win_api::close_app(hwnd!(hwnd)) {
+            println!("Failed to close the app {exe} cause :{err}");
+        }
+        Ok(())
+    }
     pub fn move_active_app_to_workspace(&mut self, workspace: &str) -> anyhow::Result<()> {
         let (hwnd, exe) = {
             let app = self
