@@ -1,7 +1,7 @@
-use crate::hook::app_info::{AppPosition, AppSize};
-use crate::hook::border::BorderManager;
-use crate::hook::win_event::WinEvent;
-use crate::hook::{app_info::AppInfo, app_window::AppWindow};
+use crate::overlay::app_info::{AppPosition, AppSize};
+use crate::overlay::monitor_info::StatusbarMonitorInfo;
+use crate::overlay::win_event::WinEvent;
+use crate::overlay::{app_info::AppInfo, app_window::AppWindow};
 use anyhow::Context;
 use flume::{Receiver, Sender};
 use lazy_static::lazy_static;
@@ -24,211 +24,7 @@ use windows::{
     core::{BOOL, PWSTR},
 };
 
-lazy_static! {
-    pub static ref BORDER_MANAGER: Mutex<BorderManager> = Mutex::new(BorderManager::new());
-    static ref APP_INFO_LIST: Mutex<HashMap<isize, AppInfo>> = Mutex::new(HashMap::new());
-}
-
 pub static APP_WINDOW_PADDING: i32 = 0;
-
-pub fn get_toolbar_height(monitor: usize) -> i32 {
-    if monitor == 0 { 28 } else { 0 }
-}
-
-pub static WINEVENT_CHANNEL: OnceLock<(
-    Sender<(WinEvent, AppWindow)>,
-    Receiver<(WinEvent, AppWindow)>,
-)> = OnceLock::new();
-
-fn hook_channel() -> &'static (
-    Sender<(WinEvent, AppWindow)>,
-    Receiver<(WinEvent, AppWindow)>,
-) {
-    WINEVENT_CHANNEL.get_or_init(|| flume::unbounded())
-}
-
-fn channel_sender() -> Sender<(WinEvent, AppWindow)> {
-    hook_channel().0.clone()
-}
-
-pub fn channel_receiver() -> Receiver<(WinEvent, AppWindow)> {
-    hook_channel().1.clone()
-}
-
-pub fn channel_send(event: WinEvent, app_window: AppWindow) {
-    if let Err(err) = channel_sender().send((event, app_window)) {
-        eprintln!("failed to send event {err} {event:?}")
-    }
-}
-
-fn init_border_manager() {
-    std::thread::spawn(move || {
-        // Clone gives us a shared Arc — the message loop runs here while
-        // the original stays in the lazy_static for the rest of the app.
-        let manager = { BORDER_MANAGER.lock().clone() };
-        manager.run_message_loop();
-    });
-}
-
-pub fn init_winhook() {
-    _ = hook_channel();
-    init_border_manager();
-    std::thread::spawn(|| {
-        // Enumerate all active windows into the app list
-        if let Err(err) = unsafe { EnumWindows(Some(init_applist), LPARAM(0)) } {
-            eprintln!("Error Listing {err}")
-        }
-        channel_send(WinEvent::Done, AppWindow::default());
-
-        // Attach window hook
-        unsafe {
-            SetWinEventHook(
-                EVENT_MIN,
-                EVENT_MAX,
-                None,
-                Some(win_event_hook),
-                0,
-                0,
-                WINEVENT_OUTOFCONTEXT,
-            )
-        };
-
-        let mut msg: MSG = MSG::default();
-        loop {
-            unsafe {
-                if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                    break;
-                }
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-            std::thread::sleep(Duration::ZERO);
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Monitor info
-// ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct MonitorInfo {
-    pub handle: isize,
-    pub top: i32,
-    pub left: i32,
-    pub bottom: i32,
-    pub right: i32,
-    pub width: i32,
-    pub height: i32,
-}
-
-pub fn get_all_monitors() -> Vec<MonitorInfo> {
-    let mut v: Vec<MonitorInfo> = Vec::new();
-    unsafe {
-        _ = EnumDisplayMonitors(
-            Some(HDC(0 as *mut c_void)),
-            None,
-            Some(monitor_enum_proc),
-            LPARAM(&mut v as *mut _ as isize),
-        );
-    };
-    v.sort_by_key(|m| m.left);
-    v
-}
-
-unsafe extern "system" fn monitor_enum_proc(
-    hmonitor: HMONITOR,
-    _hdc: HDC,
-    _lprc_monitor: *mut RECT,
-    lparam: LPARAM,
-) -> BOOL {
-    let monitors = unsafe { &mut *(lparam.0 as *mut Vec<MonitorInfo>) };
-
-    let mut mi = MONITORINFO {
-        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-
-    if unsafe { GetMonitorInfoW(hmonitor, &mut mi as *mut _ as *mut _).as_bool() } {
-        let monitor = mi.rcWork;
-        let len = monitors.len();
-        monitors.push(MonitorInfo {
-            handle: hmonitor.0 as isize,
-            top: monitor.top + get_toolbar_height(len),
-            left: monitor.left,
-            bottom: monitor.bottom,
-            right: monitor.right,
-            width: monitor.right - monitor.left,
-            height: monitor.bottom - monitor.top - get_toolbar_height(len),
-        })
-    }
-
-    true.into()
-}
-
-// ---------------------------------------------------------------------------
-// Window enumeration callbacks
-// ---------------------------------------------------------------------------
-
-extern "system" fn init_applist(hwnd: HWND, _lparam: LPARAM) -> BOOL {
-    if unsafe { IsWindowVisible(hwnd) } == FALSE {
-        return TRUE;
-    }
-    let app_window = AppWindow::from(hwnd);
-    channel_send(WinEvent::ObjectCreate, app_window);
-    TRUE
-}
-
-extern "system" fn win_event_hook(
-    _win_event_hook: HWINEVENTHOOK,
-    event: u32,
-    hwnd: HWND,
-    id_object: i32,
-    id_child: i32,
-    _id_event_thread: u32,
-    _dwms_event_time: u32,
-) {
-    unsafe {
-        if id_object != OBJID_WINDOW.0 || id_child != 0 {
-            return;
-        }
-
-        let app_window = AppWindow::from(hwnd);
-
-        if GetAncestor(hwnd, GA_ROOTOWNER) != hwnd
-            || GetWindowTextLengthW(hwnd) == 0
-            || hwnd.is_invalid()
-        {
-            return;
-        }
-
-        if matches!(event, EVENT_OBJECT_DESTROY) {
-            channel_send(WinEvent::ObjectDestroy, app_window);
-            // return;
-        }
-
-        if !IsWindowVisible(hwnd).as_bool() {
-            return;
-        }
-
-        let style = WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32);
-        if !style.contains(WS_OVERLAPPEDWINDOW) {
-            return;
-        }
-
-        let ex_style = WINDOW_EX_STYLE(GetWindowLongW(hwnd, GWL_EXSTYLE) as u32);
-        if ex_style.contains(WS_EX_TOOLWINDOW) {
-            return;
-        }
-
-        if let Ok(ev) = crate::hook::win_event::WinEvent::from_str(
-            crate::hook::win_event::WinEvent::parse_event(event),
-        ) {
-            channel_send(ev, app_window);
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Process / window info helpers
 // ---------------------------------------------------------------------------
@@ -384,14 +180,6 @@ pub(crate) fn get_app_title(hwnd: HWND) -> Option<String> {
     }
 }
 
-/// Returns which index in `monitors` the given hwnd is currently on.
-pub fn get_monitor_index(hwnd: HWND, monitors: &[MonitorInfo]) -> Option<usize> {
-    let current = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
-    monitors
-        .iter()
-        .position(|m| HMONITOR(m.handle as *mut c_void) == current)
-}
-
 // ---------------------------------------------------------------------------
 // Window manipulation
 // ---------------------------------------------------------------------------
@@ -439,6 +227,7 @@ pub(crate) fn set_app_size_position(
     _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
     let w = (width - APP_WINDOW_PADDING * 2).max(0);
     let h = (height - APP_WINDOW_PADDING * 2).max(0);
+    println!("APP_SIZE {:?}", (x, y, w, h));
     _ = unsafe {
         SetWindowPos(
             hwnd,
@@ -495,23 +284,10 @@ pub fn close_app(hwnd: HWND) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn get_monitor_index_from_cursor(monitors: &[MonitorInfo]) -> usize {
-    let mut point = POINT { x: 0, y: 0 };
-    _ = unsafe { GetCursorPos(&mut point) };
-    let hmonitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
-    monitors
-        .iter()
-        .position(|m| HMONITOR(m.handle as *mut c_void) == hmonitor)
-        .unwrap_or(0)
-}
-
 pub(crate) fn get_app_position(hwnd: HWND) -> AppPosition {
     get_rect(hwnd).1
 }
 
-/// Bring `hwnd` to the foreground, then stack it just above `border_hwnd`.
-/// `border_hwnd` should be the border window that lives on the same monitor
-/// as `hwnd` — obtain it via `BORDER_MANAGER.lock().hwnd_for(monitor_index)`.
 pub(crate) fn bring_to_front(hwnd: HWND, border_hwnd: HWND) {
     force_to_front(hwnd, border_hwnd);
 }
@@ -576,4 +352,21 @@ fn force_bring_to_front(hwnd: HWND) {
         _ = BringWindowToTop(hwnd);
         _ = AttachThreadInput(current_thread, fg_thread, false);
     }
+}
+
+pub fn get_monitor_index(hwnd: HWND, monitors: &[StatusbarMonitorInfo]) -> Option<usize> {
+    let current = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    monitors
+        .iter()
+        .position(|m| HMONITOR(m.handle as *mut c_void) == current)
+}
+
+pub fn get_monitor_index_from_cursor(monitors: &[StatusbarMonitorInfo]) -> usize {
+    let mut point = POINT { x: 0, y: 0 };
+    _ = unsafe { GetCursorPos(&mut point) };
+    let hmonitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    monitors
+        .iter()
+        .position(|m| HMONITOR(m.handle as *mut c_void) == hmonitor)
+        .unwrap_or(0)
 }
