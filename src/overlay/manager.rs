@@ -166,9 +166,15 @@ impl OverlayManager {
                             handler.lock().update_apps(app, ev);
                         }
                     }
-                    WinEvent::SystemCaptureend
-                    | WinEvent::SystemMovesizeend
-                    | WinEvent::SystemMinimizeend => {
+                    WinEvent::SystemMovesizeend => {
+                        if let Some(app) = app_window.get_app_info() {
+                            let mut handler = handler.lock();
+                            handler.update_border(&app);
+                            handler.update_apps(app, ev);
+                            handler.test_arrange_adapt();
+                        }
+                    }
+                    WinEvent::SystemCaptureend | WinEvent::SystemMinimizeend => {
                         if let Some(app) = app_window.get_app_info() {
                             let mut handler = handler.lock();
                             handler.update_border(&app);

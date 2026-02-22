@@ -426,7 +426,6 @@ impl OverlayHandler {
         }
         Ok(())
     }
-
     pub fn go_to_workspace(&self, direction: &CycleDirection) {
         let mut userwidget = self.user_widgets.lock();
         let active_monitor = self.get_active_monitor();
@@ -524,9 +523,194 @@ impl OverlayHandler {
         self.go_to_workspace(workspace);
         Ok(())
     }
+    fn transform_app(&self, app: &AppInfo, xpos: i32, ratio: f32) -> Option<()> {
+        let monitor_index = self.monitor_index_for(app.hwnd);
+        let monitor = self.monitors.get(monitor_index)?;
+        let (px, py) = win_api::get_rect_padding(app.hwnd);
+        let toolbar_height = self.get_statusbar_height(monitor_index);
 
-    pub fn arrange_workspaces(&self) {
-        self.reorder_app_pos_in_workspace();
+        let w = (monitor.width as f32 * ratio) as i32 + px;
+        let h = monitor.height + (py / 2) - toolbar_height;
+        let x = monitor.x + xpos - px / 2;
+        // win_api::set_app_size_position(hwnd!(app.hwnd), x, toolbar_height, w, h, true);
+        animation::animate_window(
+            app.hwnd,
+            app.position.clone(),
+            AppPosition::new(x, toolbar_height),
+            app.size.clone(),
+            AppSize::new(w, h),
+            animation::AnimationEasing::EaseInBounce,
+        );
+        Some(())
+    }
+
+    fn arrange_apps(
+        &self,
+        hwnds: &[&HwndItem],
+        monitor: &StatusbarMonitorInfo,
+        get_ratio: impl Fn(usize) -> f32,
+    ) -> Option<()> {
+        let mut xpos = 0;
+        for (i, item) in hwnds.iter().enumerate() {
+            let app = self.apps.get(&item.hwnd)?;
+            let ratio = get_ratio(i);
+            let width = (monitor.width as f32 * ratio) as i32;
+            self.transform_app(app, xpos, ratio);
+            xpos += width;
+        }
+        Some(())
+    }
+    pub fn test_arrange_adapt(&mut self) -> Option<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+        let monitor = self.monitors.get(active_monitor)?;
+
+        let ws = workspaces.iter().find(|w| w.active)?;
+        let hwnds = ws
+            .hwnds
+            .iter()
+            .filter(|a| a.monitor == active_monitor)
+            .collect::<Vec<_>>();
+
+        // Get the active (resized) app hwnd
+        let active_hwnd = self.get_props()?.app.hwnd;
+
+        // Find which index is the active app
+        let active_index = hwnds.iter().position(|h| h.hwnd == active_hwnd)?;
+
+        // Read all current rects
+        let rects: Vec<_> = hwnds
+            .iter()
+            .map(|item| {
+                let app = self.apps.get(&item.hwnd)?;
+                Some(win_api::get_dwm_rect(hwnd!(app.hwnd), 0))
+            })
+            .collect::<Option<_>>()?;
+
+        // Calculate ratios: use the active app's rect as truth,
+        // give remaining space to its neighbor
+        let active_rect = &rects[active_index];
+        let active_ratio = (active_rect.r - active_rect.l) as f32 / monitor.width as f32;
+
+        let mut ratios: Vec<f32> = rects
+            .iter()
+            .enumerate()
+            .map(|(i, rect)| {
+                if i == active_index {
+                    active_ratio
+                } else {
+                    (rect.r - rect.l) as f32 / monitor.width as f32
+                }
+            })
+            .collect();
+
+        // Fix total: clamp and redistribute overflow/underflow to the neighbor of active
+        let total: f32 = ratios.iter().sum();
+        if (total - 1.0).abs() > 0.001 {
+            let overflow = total - 1.0;
+            // Adjust the neighbor adjacent to the active app
+            let neighbor_index = if active_index + 1 < hwnds.len() {
+                active_index + 1
+            } else if active_index > 0 {
+                active_index - 1
+            } else {
+                return Some(());
+            };
+            ratios[neighbor_index] -= overflow;
+            ratios[neighbor_index] = ratios[neighbor_index].max(0.0);
+        }
+
+        // Now place all windows
+        let mut xpos = 0;
+        for (i, item) in hwnds.iter().enumerate() {
+            let app = self.apps.get(&item.hwnd)?;
+            self.transform_app(app, xpos, ratios[i]);
+            xpos += (ratios[i] * monitor.width as f32) as i32;
+        }
+
+        // NOT GOOD
+        // let mut ratios = Vec::new();
+        // let mut total = 0.0;
+
+        // for item in &hwnds {
+        //     let app = self.apps.get(&item.hwnd)?;
+        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
+        //     let r = (rect.r - rect.l) as f32 / monitor.width as f32;
+        //     ratios.push(r);
+        //     total += r;
+        // }
+        // if total > 1.0 {
+        //     // find largest ratio index
+        //     if let Some((max_index, _)) = ratios
+        //         .iter()
+        //         .enumerate()
+        //         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        //     {
+        //         let overflow = total - 1.0;
+        //         ratios[max_index] -= overflow;
+        //     }
+        // }
+        // let mut xpos = 0;
+
+        // for (i, item) in hwnds.iter().enumerate() {
+        //     let app = self.apps.get(&item.hwnd)?;
+        //     let ratio = ratios[i];
+
+        //     self.transform_app(app, xpos, ratio);
+
+        //     xpos += (ratio * monitor.width as f32) as i32;
+        // }
+
+        // GOOD ORDER
+        // let mut xpos = 0;
+        // let mut accumulated_ratio = 0.0;
+        // let active_app = self.get_props()?.app;
+        // println!("WIDTH {}", active_app.size.width);
+        // for (i, item) in hwnds.iter().enumerate() {
+        //     let app = self.apps.get(&item.hwnd)?;
+        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
+
+        //     let ratio = if i == hwnds.len() - 1 {
+        //         // Last item takes the remaining space
+        //         1.0 - accumulated_ratio
+        //     } else {
+        //         let r = (rect.r - rect.l) as f32 / monitor.width as f32;
+        //         accumulated_ratio += r;
+        //         r
+        //     };
+
+        //     self.transform_app(app, xpos, ratio);
+
+        //     xpos += (ratio * monitor.width as f32) as i32;
+        // }
+
+        //ORIGINAL
+        // let mut xpos = 0;
+        // for item in &hwnds {
+        //     let app = self.apps.get(&item.hwnd)?;
+        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
+        //     let ratio = (rect.r - rect.l) as f32 / monitor.width as f32;
+        //     self.transform_app(app, xpos, ratio);
+        //     xpos += rect.r - rect.l;
+        // }
+        Some(())
+    }
+
+    pub fn test_arrange_uniform(&self) -> Option<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+        let monitor = self.monitors.get(active_monitor)?;
+
+        for workspace in &workspaces {
+            let hwnds = workspace
+                .hwnds
+                .iter()
+                .filter(|a| a.monitor == active_monitor)
+                .collect::<Vec<_>>();
+            let ratio = 1.0 / hwnds.len() as f32;
+            self.arrange_apps(&hwnds, monitor, |_| ratio)?;
+        }
+        Some(())
     }
     fn debug_app(&self, ws: usize, monitor: usize, app: &AppInfo) {
         println!(
