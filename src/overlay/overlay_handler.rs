@@ -388,8 +388,24 @@ impl OverlayHandler {
         }
         Some(())
     }
-    pub fn cycle_app_width(&self, direction: &str) {
-        todo!()
+    pub fn cycle_app_width(&mut self, direction: &CycleDirection) -> anyhow::Result<()> {
+        match direction {
+            CycleDirection::Prev => {
+                self.width_selector_index = (self.width_selector_index + self.size_factor.len()
+                    - 1)
+                    % self.size_factor.len();
+            }
+            CycleDirection::Next => {
+                self.width_selector_index =
+                    (self.width_selector_index + 1) % self.size_factor.len();
+            }
+        }
+        let props = self.get_props().ok_or(anyhow!("Unable to get props"))?;
+        let ratio = self.size_factor[self.width_selector_index];
+
+        // println!("{}  => {}", ratio, xpos);
+        self.force_arrange(ratio);
+        Ok(())
     }
     pub fn cycle_app_height(&self, direction: &str) {
         todo!()
@@ -531,7 +547,11 @@ impl OverlayHandler {
 
         let w = (monitor.width as f32 * ratio) as i32 + px;
         let h = monitor.height + (py / 2) - toolbar_height;
-        let x = monitor.x + xpos - px / 2;
+        let x = if ratio == 0.0 {
+            monitor.x
+        } else {
+            monitor.x + xpos - px / 2
+        };
         // win_api::set_app_size_position(hwnd!(app.hwnd), x, toolbar_height, w, h, true);
         animation::animate_window(
             app.hwnd,
@@ -627,7 +647,114 @@ impl OverlayHandler {
         });
         Ok(())
     }
+    fn compute_ratios(active_index: usize, total_count: usize, active_ratio: f32) -> Vec<f32> {
+        let active_ratio = active_ratio.clamp(0.0, 1.0);
+        let sibling_count = total_count - 1;
+        let sibling_ratio = if sibling_count > 0 {
+            (1.0 - active_ratio) / sibling_count as f32
+        } else {
+            0.0
+        };
+
+        (0..total_count)
+            .map(|i| {
+                if i == active_index {
+                    active_ratio
+                } else {
+                    sibling_ratio
+                }
+            })
+            .collect()
+    }
+    fn arrange_with_ratio(&mut self, force: Option<(Hwnd, f32)>) -> Result<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+        let monitor = self
+            .monitors
+            .get(active_monitor)
+            .ok_or(anyhow!("Can find monitor"))?;
+
+        // Get the active workspace index for this monitor
+        let active_workspace_index = self
+            .user_widgets
+            .lock()
+            .get_active_workspace_for_monitor(active_monitor);
+
+        // Find the active workspace
+        let ws = workspaces
+            .get(active_workspace_index) // Use index instead of .find(|w| w.active)
+            .ok_or(anyhow!("Cant find active workspace"))?;
+        let hwnds = ws
+            .hwnds
+            .iter()
+            .filter(|a| a.monitor == active_monitor && !a.floating)
+            .collect::<Vec<_>>();
+
+        if hwnds.is_empty() {
+            bail!("No app found to arrange");
+        }
+        if hwnds.len() == 1 {
+            self.fake_maximize();
+            bail!("Only one available, maximizing");
+        }
+
+        let active_hwnd = match force {
+            Some((hwnd, _)) => hwnd,
+            None => self.get_props().ok_or(anyhow!("Cant find props"))?.app.hwnd,
+        };
+
+        let active_index = hwnds
+            .iter()
+            .position(|h| h.hwnd == active_hwnd)
+            .unwrap_or_default();
+
+        let rects: Vec<_> = hwnds
+            .iter()
+            .map(|item| {
+                let app = self.apps.get(&item.hwnd)?;
+                Some(win_api::get_dwm_rect(hwnd!(app.hwnd), 0))
+            })
+            .collect::<Option<_>>()
+            .ok_or(anyhow!("Cant collect vec rect"))?;
+
+        let active_ratio = match force {
+            Some((_, ratio)) => ratio.clamp(0.0, 1.0),
+            None => {
+                let r = &rects[active_index];
+                ((r.r - r.l) as f32 / monitor.width as f32).clamp(0.0, 1.0)
+            }
+        };
+
+        let ratios = Self::compute_ratios(active_index, hwnds.len(), active_ratio);
+
+        let monitor_width = monitor.width as i32;
+        let mut xpos = 0;
+        for (i, item) in hwnds.iter().enumerate() {
+            let app = self
+                .apps
+                .get(&item.hwnd)
+                .ok_or(anyhow!("cant find app for {i}"))?;
+            let width_ratio = if i == hwnds.len() - 1 {
+                (monitor_width - xpos) as f32 / monitor_width as f32
+            } else {
+                ratios[i]
+            };
+            self.transform_app(app, xpos, width_ratio);
+            xpos += (ratios[i] * monitor_width as f32) as i32;
+            xpos = xpos.min(monitor_width);
+        }
+
+        Ok(())
+    }
+    pub fn force_arrange(&mut self, ratio: f32) -> Result<()> {
+        let active_hwnd = self.get_props().ok_or(anyhow!("Cant find props"))?.app.hwnd;
+        self.arrange_with_ratio(Some((active_hwnd, ratio)))
+    }
     pub fn test_arrange_adapt(&mut self) -> Result<()> {
+        let active_hwnd = self.get_props().ok_or(anyhow!("Cant find props"))?.app.hwnd;
+        self.arrange_with_ratio(None)
+    }
+    pub fn __test_arrange_adapt(&mut self) -> Result<()> {
         let workspaces = self.user_widgets.lock().workspaces.clone();
         let active_monitor = self.get_active_monitor();
         let monitor = self

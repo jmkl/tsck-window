@@ -111,7 +111,7 @@ impl WF {
             }
             WF::CycleAppWidth(direction) => {
                 handler.with_handler(|hd| {
-                    hd.cycle_app_width(direction.as_str());
+                    hd.cycle_app_width(direction);
                 });
             }
             WF::CycleColumn => {
