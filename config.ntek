@@ -43,6 +43,7 @@ hotkeys = {
   C-S-A-left        : W::ResizeActiveApp(Left),
   C-S-A-up          : W::ResizeActiveApp(Up),
   C-S-d             : W::Debug,
+  C-S-f             : W::ToggleFloatingApp,
   C-S-t             : W::ToggleTopMost,
   C-S-p             : W::CycleAppOnGrid,
   C-S-k             : W::CycleAppHeight(Next),
