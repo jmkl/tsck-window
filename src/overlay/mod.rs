@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod app_border;
 pub mod app_info;
 pub mod app_window;
@@ -8,7 +9,6 @@ pub mod monitor_info;
 mod overlay_handler;
 pub mod statusbar;
 pub mod sys;
-pub mod user_api;
 pub mod widget;
 pub mod win_api;
 pub mod win_event;

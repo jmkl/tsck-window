@@ -33,15 +33,27 @@ workspace_grid = [
       { width: 0.5, height: 0.5, x: 0.25, y  : 0.25  },
 
 ]
-# u can add workspace as many as u want here
+# this is for W:CycleAppHeight and W:CycleAppWidth
+size_factor = [1.0, 0.75, 0.666666, 0.5, 0.333333, 0.25]
+# this is for W: CycleAppOnGrid
+workspace_grid = [
+      { width: 1.0, height: 1.0, x: 0.0,  y  : 0.0   },
+      { width: 0.5, height: 1.0, x: 0.0,  y  : 0.0   },
+      { width: 0.5, height: 1.0, x: 0.5,  y  : 0.0   },
+      { width: 0.5, height: 0.5, x: 0.0,  y  : 0.0   },
+      { width: 0.5, height: 0.5, x: 0.5,  y  : 0.0   },
+      { width: 0.5, height: 0.5, x: 0.0,  y  : 0.5   },
+      { width: 0.5, height: 0.5, x: 0.5,  y  : 0.5   },
+      { width: 0.8, height: 1.0, x: 0.2,  y  : 0.0   },
+      { width: 0.5, height: 0.5, x: 0.25, y  : 0.25  },
+
+]
 workspaces = [
   "Work",
   "Browsing",
   "Files",
 ]
-# include app into this blacklist if u want to ignore it
 blacklist = [
-    "wezterm-gui.exe",
     "tsck.exe",
     "TextInputHost.exe",
     "msedgewebview2.exe",
@@ -49,17 +61,15 @@ blacklist = [
     "StartMenuExperienceHost.exe",
     "SearchHost.exe"
 ]
-# this is the increment by px that uses by MoveActiveApp command
 move_inc = 50
-# this is the increment by px that uses by ResizeActiveApp command
 size_inc = 50
 
 hotkeys = {
   C-S-right         : W::MoveActiveApp(Right),
   C-S-A-pagedown    : W::MoveToWorkspace(Next),
   C-S-A-pageup      : W::MoveToWorkspace(Prev),
-  C-S-pagedown      : W::ActivateWorkspace(Next),
-  C-S-pageup        : W::ActivateWorkspace(Prev),
+  C-S-pagedown      : W::GoToWorkspace(Next),
+  C-S-pageup        : W::GoToWorkspace(Prev),
   C-S-down          : W::MoveActiveApp(Down),
   C-S-left          : W::MoveActiveApp(Left),
   C-S-up            : W::MoveActiveApp(Up),
@@ -68,6 +78,7 @@ hotkeys = {
   C-S-A-left        : W::ResizeActiveApp(Left),
   C-S-A-up          : W::ResizeActiveApp(Up),
   C-S-d             : W::Debug,
+  C-S-t             : W::ToggleTopMost,
   C-S-p             : W::CycleAppOnGrid,
   C-S-k             : W::CycleAppHeight(Next),
   C-S-j             : W::CycleAppHeight(Prev),
@@ -85,8 +96,8 @@ hotkeys = {
 | C-S-right        |  W::MoveActiveApp(Right)     | move active app to right [inc]px  |
 | C-S-A-pagedown   |  W::MoveToWorkspace(Next)    | move app to next workspace |
 | C-S-A-pageup     |  W::MoveToWorkspace(Prev)    | move app to prev workspace |
-| C-S-pagedown     |  W::ActivateWorkspace(Next)  | activate next workspace |
-| C-S-pageup       |  W::ActivateWorkspace(Prev)  | activate previous workspace |
+| C-S-pagedown     |  W::GoToWorkspace(Next)  | activate next workspace |
+| C-S-pageup       |  W::GoToWorkspace(Prev)  | activate previous workspace |
 | C-S-down         |  W::MoveActiveApp(Down)      | move active app to down [inc]px  |
 | C-S-left         |  W::MoveActiveApp(Left)      | move active app to left [inc]px  |
 | C-S-up           |  W::MoveActiveApp(Up)        | move active app to up [inc]px  |

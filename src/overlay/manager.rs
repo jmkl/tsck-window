@@ -86,6 +86,7 @@ impl OverlayManager {
         handler.blacklist = config.blacklist.clone();
         handler.size_factor = config.size_factor.clone();
         handler.statusbar = statusbar_hwnds.clone();
+        handler.border_overlay = border_overlay.clone();
         handler.user_widgets.lock().workspaces = config
             .workspaces
             .iter()
@@ -121,37 +122,15 @@ impl OverlayManager {
     // description : -
     //==============================================================================//
 
-    fn update_border(app: &AppInfo, border_overlay: OptBorderOverlay) {
-        if let Some(ref overlay) = *border_overlay.lock() {
-            const PADDING: i32 = 2;
-            let is_maximized = win_api::is_maximized(app.hwnd);
-            let (px, py) = win_api::get_rect_padding(app.hwnd);
-            let y = if is_maximized {
-                app.position.y + (py / 2)
-            } else {
-                app.position.y
-            };
-            overlay.set_focus(BorderInfo {
-                x: app.position.x + (px / 2) + PADDING / 2,
-                y: y + PADDING / 2,
-                width: app.size.width - (px) - PADDING,
-                height: app.size.height - (py) - PADDING,
-                color: color::Theme::DANGER,
-                thickness: 2.0,
-                radius: 5.0,
-            });
-        }
-    }
-
     fn spawn_winevent_listener_service(
         border_overlay: OptBorderOverlay,
         handler: Shared<OverlayHandler>,
     ) {
         std::thread::spawn(move || {
             while let Ok((ev, app_window)) = channel_receiver().recv() {
-                if let Some(app) = app_window.get_app_info() {
-                    eprintln!("{:?} {}{}", ev, app.exe, app.title);
-                }
+                // if let Some(app) = app_window.get_app_info() {
+                //     eprintln!("{:?} {}{}", ev, app.exe, app.title);
+                // }
                 match ev {
                     WinEvent::ObjectNamechange => {
                         if let Some(app) = app_window.get_app_info() {
@@ -191,27 +170,36 @@ impl OverlayManager {
                     | WinEvent::SystemMovesizeend
                     | WinEvent::SystemMinimizeend => {
                         if let Some(app) = app_window.get_app_info() {
-                            Self::update_border(&app, border_overlay.clone());
-                            handler.lock().update_apps(app, ev);
+                            let mut handler = handler.lock();
+                            handler.update_border(&app);
+                            handler.update_apps(app, ev);
                         }
                     }
                     WinEvent::ObjectLocationchange => {
                         if let Some(app) = app_window.get_app_info() {
-                            Self::update_border(&app, border_overlay.clone());
+                            // {
+                            //     handler.lock().update_border(&app, border_overlay.clone());
+                            // }
                             if let Ok(maximized) = win_api::is_window_maximized(hwnd!(app.hwnd)) {
                                 if maximized {
                                     handler.lock().fake_maximize();
                                 }
                             }
                             {
-                                handler.lock().update_apps(app, ev);
+                                let mut handler = handler.lock();
+                                handler.current_active_app.map(|a| {
+                                    if app.hwnd == a {
+                                        handler.update_border(&app);
+                                    }
+                                });
+                                handler.update_apps(app, ev);
                             }
                         }
                     }
                     WinEvent::SystemForeground => {
                         if let Some(app) = app_window.get_app_info() {
-                            Self::update_border(&app, border_overlay.clone());
                             let mut handler = handler.lock();
+                            handler.update_border(&app);
                             handler.update_active_app(app.hwnd);
                             handler.update_apps(app, ev);
                             handler.reset_size_selector();
