@@ -190,6 +190,16 @@ pub fn animate_window(
     to_size: AppSize,
     easing: AnimationEasing,
 ) {
+    let ahwnd = hwnd!(hwnd);
+    win_api::set_app_size_position(
+        ahwnd,
+        to_pos.x,
+        to_pos.y,
+        to_size.width,
+        to_size.height,
+        true,
+    );
+    return;
     std::thread::spawn(move || {
         let hwnd = hwnd!(hwnd);
         let start_time = Instant::now();
