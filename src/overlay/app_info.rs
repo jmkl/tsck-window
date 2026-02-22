@@ -19,6 +19,11 @@ impl AppPosition {
         Self { x, y }
     }
 }
+impl std::fmt::Display for AppPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AppSize {
@@ -31,6 +36,11 @@ impl AppSize {
     }
 }
 
+impl std::fmt::Display for AppSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.width, self.height)
+    }
+}
 #[derive(Debug, PartialEq, Clone)]
 pub struct AppInfo {
     pub hwnd: isize,

@@ -19,7 +19,6 @@ workspaces = [
   "Files",
 ]
 blacklist = [
-    "wezterm-gui.exe",
     "tsck.exe",
     "TextInputHost.exe",
     "msedgewebview2.exe",
@@ -34,8 +33,8 @@ hotkeys = {
   C-S-right         : W::MoveActiveApp(Right),
   C-S-A-pagedown    : W::MoveToWorkspace(Next),
   C-S-A-pageup      : W::MoveToWorkspace(Prev),
-  C-S-pagedown      : W::ActivateWorkspace(Next),
-  C-S-pageup        : W::ActivateWorkspace(Prev),
+  C-S-pagedown      : W::GoToWorkspace(Next),
+  C-S-pageup        : W::GoToWorkspace(Prev),
   C-S-down          : W::MoveActiveApp(Down),
   C-S-left          : W::MoveActiveApp(Left),
   C-S-up            : W::MoveActiveApp(Up),
@@ -44,6 +43,7 @@ hotkeys = {
   C-S-A-left        : W::ResizeActiveApp(Left),
   C-S-A-up          : W::ResizeActiveApp(Up),
   C-S-d             : W::Debug,
+  C-S-t             : W::ToggleTopMost,
   C-S-p             : W::CycleAppOnGrid,
   C-S-k             : W::CycleAppHeight(Next),
   C-S-j             : W::CycleAppHeight(Prev),

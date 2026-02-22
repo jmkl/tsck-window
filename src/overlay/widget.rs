@@ -105,9 +105,9 @@ impl WidgetSlots {
             .enumerate()
             .map(|(idx, ws)| {
                 let has_apps = ws.hwnds.iter().any(|h| h.monitor == monitor_index);
-                SlotText::new(ws.text.clone())
+                SlotText::new(format!("{} :{}", ws.text, ws.hwnds.len()))
                     .fg(if has_apps {
-                        color::DARK_FG
+                        if active == idx { color::BG } else { color::FG }
                     } else {
                         color::DIM_FG
                     })

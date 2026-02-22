@@ -370,3 +370,37 @@ pub fn get_monitor_index_from_cursor(monitors: &[StatusbarMonitorInfo]) -> usize
         .position(|m| HMONITOR(m.handle as *mut c_void) == hmonitor)
         .unwrap_or(0)
 }
+
+pub fn is_top_most(hwnd: HWND) -> bool {
+    unsafe {
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        (ex_style & WS_EX_TOPMOST.0) != 0
+    }
+}
+
+pub fn toggle_top_most(hwnd: HWND, parent_hwnd: HWND) -> bool {
+    let top_most = is_top_most(hwnd);
+    let flag = if top_most {
+        HWND_NOTOPMOST
+    } else {
+        HWND_TOPMOST
+    };
+    unsafe {
+        _ = SetWindowPos(hwnd, Some(flag), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+        _ = SetWindowPos(
+            parent_hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+    !top_most
+}
+
+pub fn app_exist(hwnd: HWND) {
+    let exits = unsafe { IsWindow(Some(hwnd)).as_bool() };
+}
