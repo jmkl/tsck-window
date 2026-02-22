@@ -4,6 +4,7 @@ pub struct HwndItem {
     pub hwnd: Hwnd,
     pub app_name: String,
     pub monitor: usize,
+    pub floating: bool,
     pub parked_position: Option<i32>,
 }
 impl HwndItem {
@@ -12,6 +13,7 @@ impl HwndItem {
             hwnd,
             app_name: app_name.to_string(),
             monitor,
+            floating: false,
             parked_position: None,
         }
     }

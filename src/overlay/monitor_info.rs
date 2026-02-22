@@ -17,6 +17,7 @@ pub struct StatusbarMonitorInfo {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    pub tile_widths: Vec<f32>,
     pub is_primary: bool,
 }
 pub fn get_monitors() -> Vec<StatusbarMonitorInfo> {
@@ -41,6 +42,7 @@ pub fn get_monitors() -> Vec<StatusbarMonitorInfo> {
                     index: monitors.len(),
                     x: mi.rcMonitor.left,
                     y: mi.rcMonitor.top,
+                    tile_widths: vec![1.0],
                     width: mi.rcMonitor.right - mi.rcMonitor.left,
                     height: mi.rcMonitor.bottom - mi.rcMonitor.top,
                     is_primary: mi.dwFlags & 1 != 0,

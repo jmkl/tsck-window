@@ -6,9 +6,9 @@ use crate::{
         app_info::{AppInfo, AppPosition, AppSize, Column, SizeRatio},
         color,
         config::CycleDirection,
-        manager::{OptBorderOverlay, STATUSBAR_HEIGHT, Shared, WM_UPDATE_STATUSBAR},
+        manager::{OptBorderOverlay, STATUSBAR_HEIGHT, Shared},
         monitor_info::StatusbarMonitorInfo,
-        statusbar::{SlotText, StatusBar, StatusBarFont, Visibility},
+        statusbar::SlotText,
         sys::{SystemInfo, format_speed},
         widget::{SlotGrid, WidgetSlots, WorkspaceIndicatorPosition},
         win_api,
@@ -16,7 +16,7 @@ use crate::{
         workspaces::{Hwnd, HwndItem, Workspace},
     },
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet},
@@ -383,7 +383,7 @@ impl OverlayHandler {
                 AppPosition::new(x, y),
                 props.size.clone(),
                 AppSize::new(w, h),
-                animation::AnimationEasing::EaseOutQuart,
+                animation::AnimationEasing::EaseInOutCirc,
             );
         }
         Some(())
@@ -426,7 +426,6 @@ impl OverlayHandler {
         }
         Ok(())
     }
-
     pub fn go_to_workspace(&self, direction: &CycleDirection) {
         let mut userwidget = self.user_widgets.lock();
         let active_monitor = self.get_active_monitor();
@@ -524,9 +523,236 @@ impl OverlayHandler {
         self.go_to_workspace(workspace);
         Ok(())
     }
+    fn transform_app(&self, app: &AppInfo, xpos: i32, ratio: f32) -> Option<()> {
+        let monitor_index = self.monitor_index_for(app.hwnd);
+        let monitor = self.monitors.get(monitor_index)?;
+        let (px, py) = win_api::get_rect_padding(app.hwnd);
+        let toolbar_height = self.get_statusbar_height(monitor_index);
 
-    pub fn arrange_workspaces(&self) {
-        self.reorder_app_pos_in_workspace();
+        let w = (monitor.width as f32 * ratio) as i32 + px;
+        let h = monitor.height + (py / 2) - toolbar_height;
+        let x = monitor.x + xpos - px / 2;
+        // win_api::set_app_size_position(hwnd!(app.hwnd), x, toolbar_height, w, h, true);
+        animation::animate_window(
+            app.hwnd,
+            app.position.clone(),
+            AppPosition::new(x, toolbar_height),
+            app.size.clone(),
+            AppSize::new(w, h),
+            animation::AnimationEasing::EaseInBounce,
+        );
+        Some(())
+    }
+
+    fn arrange_apps(
+        &self,
+        hwnds: &[&HwndItem],
+        monitor: &StatusbarMonitorInfo,
+        get_ratio: impl Fn(usize) -> f32,
+    ) -> Option<()> {
+        let mut xpos = 0;
+        for (i, item) in hwnds.iter().enumerate() {
+            let app = self.apps.get(&item.hwnd)?;
+            let ratio = get_ratio(i);
+            let width = (monitor.width as f32 * ratio) as i32;
+            self.transform_app(app, xpos, ratio);
+            xpos += width;
+        }
+        Some(())
+    }
+    pub fn toggle_floating_app(&mut self) -> anyhow::Result<()> {
+        let (top, active_hwnd) = {
+            let workspaces = self.user_widgets.lock().workspaces.clone();
+            let active_monitor = self.get_active_monitor();
+            let active_hwnd = self.get_props().ok_or(anyhow!("Cant find props"))?.app.hwnd;
+            let ws = workspaces
+                .iter()
+                .find(|w| w.active)
+                .ok_or(anyhow!("Cant find active worspace"))?;
+            let mut hwnds = ws
+                .hwnds
+                .iter()
+                .filter(|a| a.monitor == active_monitor && a.hwnd != active_hwnd)
+                .cloned()
+                .collect::<Vec<_>>();
+            let top = win_api::retain_zorder(&mut hwnds)?;
+            (top, active_hwnd)
+        };
+        {
+            let border_hwnd = || -> Option<isize> {
+                let overlay = self.border_overlay.lock();
+                let hwnd = overlay.as_ref()?.hwnd().0 as isize;
+                Some(hwnd)
+            };
+            self.user_widgets
+                .lock()
+                .workspaces
+                .iter_mut()
+                .for_each(|f| {
+                    f.hwnds.iter_mut().for_each(|h| {
+                        if h.hwnd == active_hwnd {
+                            if let Some(border) = border_hwnd() {
+                                win_api::above_app(border, active_hwnd);
+                            }
+                            h.floating = !h.floating
+                        }
+                    })
+                });
+        }
+        {
+            if let Err(err) = self.test_arrange_adapt() {
+                eprintln!("Error while arrange app {err}");
+            }
+        }
+        Ok(())
+    }
+    pub fn sort_by_active(&mut self) -> Result<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+
+        let ws = workspaces
+            .iter()
+            .find(|w| w.active)
+            .ok_or(anyhow!("Cant find active worspace"))?;
+        let mut hwnds = ws
+            .hwnds
+            .iter()
+            .filter(|a| a.monitor == active_monitor && !a.floating)
+            .collect::<Vec<_>>();
+        hwnds.sort_by_key(|item| {
+            self.apps
+                .get(&item.hwnd)
+                .map(|app| win_api::get_dwm_rect(hwnd!(app.hwnd), 0).l)
+                .unwrap_or(i32::MAX)
+        });
+        Ok(())
+    }
+    pub fn test_arrange_adapt(&mut self) -> Result<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+        let monitor = self
+            .monitors
+            .get(active_monitor)
+            .ok_or(anyhow::anyhow!("Can find monitor"))?;
+
+        let ws = workspaces
+            .iter()
+            .find(|w| w.active)
+            .ok_or(anyhow!("Cant find active worspace"))?;
+        let hwnds = ws
+            .hwnds
+            .iter()
+            .filter(|a| a.monitor == active_monitor && !a.floating)
+            .collect::<Vec<_>>();
+        println!("{:#?}", hwnds);
+        if hwnds.len() <= 0 {
+            bail!("No app found to arrange");
+        }
+        if hwnds.len() == 1 {
+            self.fake_maximize();
+            bail!("Only one available. we max it out");
+        }
+
+        // Get the active (resized) app hwnd
+        let active_hwnd = self.get_props().ok_or(anyhow!("Cant find props"))?.app.hwnd;
+
+        // Find which index is the active app
+        let active_index = hwnds
+            .iter()
+            .position(|h| h.hwnd == active_hwnd)
+            .unwrap_or_default();
+
+        // Read all current rects
+        let rects: Vec<_> = hwnds
+            .iter()
+            .map(|item| {
+                let app = self.apps.get(&item.hwnd)?;
+                Some(win_api::get_dwm_rect(hwnd!(app.hwnd), 0))
+            })
+            .collect::<Option<_>>()
+            .ok_or(anyhow!("Cant collect vec rect"))?;
+
+        // Calculate ratios: use the active app's rect as truth,
+        // give remaining space to its neighbor
+        let active_rect = &rects[active_index];
+        let active_ratio =
+            ((active_rect.r - active_rect.l) as f32 / monitor.width as f32).clamp(0.0, 1.0);
+
+        let sibling_count = hwnds.len() - 1;
+        let sibling_ratio = if sibling_count > 0 {
+            (1.0 - active_ratio) / sibling_count as f32
+        } else {
+            0.0
+        };
+
+        let mut ratios: Vec<f32> = (0..hwnds.len())
+            .map(|i| {
+                if i == active_index {
+                    active_ratio
+                } else {
+                    sibling_ratio
+                }
+            })
+            .collect();
+
+        let total: f32 = ratios.iter().sum();
+        if (total - 1.0).abs() > 0.001 {
+            let overflow = total - 1.0;
+            let neighbor_index = if active_index + 1 < hwnds.len() {
+                active_index + 1
+            } else if active_index > 0 {
+                active_index - 1
+            } else {
+                return Ok(());
+            };
+            ratios[neighbor_index] -= overflow;
+            ratios[neighbor_index] = ratios[neighbor_index].max(0.0);
+        }
+        println!("LEN:{} TOTAL RATIO: {}", hwnds.len(), total);
+        // Normalize so the sum is exactly 1.0, preventing any monitor width overflow
+        let total: f32 = ratios.iter().sum();
+        if total > 0.0 {
+            for r in ratios.iter_mut() {
+                *r /= total;
+            }
+        }
+        let monitor_width = monitor.width as i32;
+        let mut xpos = 0;
+        for (i, item) in hwnds.iter().enumerate() {
+            let app = self
+                .apps
+                .get(&item.hwnd)
+                .ok_or(anyhow!("can find app for {i}"))?;
+
+            // For the last window, use remaining space to avoid floating point drift
+            let width_ratio = if i == hwnds.len() - 1 {
+                (monitor_width - xpos) as f32 / monitor_width as f32
+            } else {
+                ratios[i]
+            };
+
+            self.transform_app(app, xpos, width_ratio);
+            xpos += (ratios[i] * monitor_width as f32) as i32;
+            xpos = xpos.min(monitor_width); // hard clamp
+        }
+        Ok(())
+    }
+
+    pub fn test_arrange_uniform(&self) -> Option<()> {
+        let workspaces = self.user_widgets.lock().workspaces.clone();
+        let active_monitor = self.get_active_monitor();
+        let monitor = self.monitors.get(active_monitor)?;
+
+        for workspace in &workspaces {
+            let hwnds = workspace
+                .hwnds
+                .iter()
+                .filter(|a| a.monitor == active_monitor)
+                .collect::<Vec<_>>();
+            let ratio = 1.0 / hwnds.len() as f32;
+            self.arrange_apps(&hwnds, monitor, |_| ratio)?;
+        }
+        Some(())
     }
     fn debug_app(&self, ws: usize, monitor: usize, app: &AppInfo) {
         println!(
@@ -666,7 +892,9 @@ impl OverlayHandler {
             let mut info = SystemInfo::new();
 
             loop {
-                let time = chrono::Local::now().format("%H:%M %a, %d %h").to_string();
+                let local = chrono::Local::now();
+                let time = local.format("%H:%M %p").to_string();
+                let date = local.format("%a, %d %h %Y").to_string();
                 let usage = info.update();
                 let bg = color::DANGER;
                 let fg = color::DARK_FG;
@@ -675,7 +903,10 @@ impl OverlayHandler {
                     me.set_slot(
                         SlotGrid::Center,
                         "clock",
-                        vec![SlotText::new(format!("{}", time)).fg(fg).bg(bg).black()],
+                        vec![
+                            SlotText::new(time).fg(fg).bg(bg).black(),
+                            SlotText::new(date),
+                        ],
                     );
                     me.set_slot(
                         SlotGrid::Right,

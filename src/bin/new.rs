@@ -78,8 +78,12 @@ fn spawn_command_interface(manager: Arc<OverlayManager>) {
                     }
                 }
                 "order" => manager.with_handler(|h| {
-                    h.arrange_workspaces();
+                    h.test_arrange_uniform();
                 }),
+                "orderes" => manager.with_handler(|h| {
+                    h.test_arrange_adapt();
+                }),
+
                 "reset" => manager.with_handler(|h| {
                     h.reset_position();
                 }),
