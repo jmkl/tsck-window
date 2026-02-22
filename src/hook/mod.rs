@@ -5,6 +5,7 @@ mod app_window;
 mod border;
 mod color;
 mod macros;
+mod overlay;
 mod sys;
 mod win_api;
 mod win_event;
