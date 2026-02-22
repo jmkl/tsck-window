@@ -1,6 +1,7 @@
 use crate::overlay::app_info::{AppPosition, AppSize};
 use crate::overlay::monitor_info::StatusbarMonitorInfo;
 use crate::overlay::win_event::WinEvent;
+use crate::overlay::workspaces::{Hwnd, HwndItem};
 use crate::overlay::{app_info::AppInfo, app_window::AppWindow};
 use anyhow::Context;
 use flume::{Receiver, Sender};
@@ -288,11 +289,11 @@ pub(crate) fn get_app_position(hwnd: HWND) -> AppPosition {
     get_rect(hwnd).1
 }
 
-pub(crate) fn bring_to_front(hwnd: HWND, border_hwnd: HWND) {
-    force_to_front(hwnd, border_hwnd);
+pub(crate) fn bring_to_front(hwnd: HWND) {
+    force_to_front(hwnd);
 }
 
-fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
+fn force_to_front(hwnd: HWND) {
     unsafe {
         if IsWindow(Some(hwnd)) == FALSE {
             return;
@@ -302,27 +303,27 @@ fn force_to_front(hwnd: HWND, border_hwnd: HWND) {
         }
         _ = ShowWindow(hwnd, SW_SHOW);
 
-        // Temporarily make topmost so SetForegroundWindow reliably fires
-        _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOPMOST),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE,
-        );
-        _ = SetForegroundWindow(hwnd);
-        // Remove topmost — stack just above the border overlay for this monitor
-        _ = SetWindowPos(
-            hwnd,
-            Some(HWND_NOTOPMOST),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE,
-        );
+        // // Temporarily make topmost so SetForegroundWindow reliably fires
+        // _ = SetWindowPos(
+        //     hwnd,
+        //     Some(HWND_TOPMOST),
+        //     0,
+        //     0,
+        //     0,
+        //     0,
+        //     SWP_NOMOVE | SWP_NOSIZE,
+        // );
+        // _ = SetForegroundWindow(hwnd);
+        // // Remove topmost — stack just above the border overlay for this monitor
+        // _ = SetWindowPos(
+        //     hwnd,
+        //     Some(HWND_NOTOPMOST),
+        //     0,
+        //     0,
+        //     0,
+        //     0,
+        //     SWP_NOMOVE | SWP_NOSIZE,
+        // );
         // SetWindowPos(hwnd, Some(border_hwnd), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
 }
@@ -401,6 +402,46 @@ pub fn toggle_top_most(hwnd: HWND, parent_hwnd: HWND) -> bool {
     !top_most
 }
 
+pub fn above_app(above: Hwnd, behind: Hwnd) {
+    unsafe {
+        _ = SetWindowPos(
+            crate::hwnd!(behind),
+            Some(crate::hwnd!(above)),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE,
+        );
+    }
+}
+
 pub fn app_exist(hwnd: HWND) {
     let exits = unsafe { IsWindow(Some(hwnd)).as_bool() };
+}
+
+pub fn list_z_orders() -> anyhow::Result<Vec<Hwnd>> {
+    let mut result = Vec::new();
+    unsafe {
+        let mut hwnd = GetTopWindow(Some(HWND(0 as *mut c_void)))?;
+        while !hwnd.is_invalid() {
+            if IsWindowVisible(hwnd).as_bool() {
+                result.push(hwnd.0 as isize);
+            }
+            hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                Ok(next) => next,
+                Err(_) => break,
+            };
+        }
+    }
+    Ok(result)
+}
+pub fn retain_zorder(hwnds: &mut Vec<HwndItem>) -> anyhow::Result<isize> {
+    let zorders = list_z_orders()?;
+    println!("{:?}", &zorders);
+    hwnds.retain(|x| zorders.contains(&x.hwnd));
+    Ok(hwnds
+        .get(0)
+        .ok_or(anyhow::anyhow!("Not Found 0 Index"))?
+        .hwnd)
 }

@@ -33,6 +33,7 @@ pub enum WF {
     CloseActiveApp,
     CycleAppOnGrid,
     ToggleTopMost,
+    ToggleFloatingApp,
     CycleActiveApp(CycleDirection),
     CycleAppWidth(CycleDirection),
     CycleAppHeight(CycleDirection),
@@ -129,6 +130,13 @@ impl WF {
             WF::ToggleTopMost => {
                 handler.with_handler(|hd| {
                     hd.toggle_top_most();
+                });
+            }
+            WF::ToggleFloatingApp => {
+                handler.with_handler(|hd| {
+                    if let Err(err) = hd.toggle_floating_app() {
+                        eprintln!("Error toggle floating app {err}")
+                    }
                 });
             }
             WF::MoveToWorkspace(direction) => {
