@@ -566,12 +566,17 @@ impl OverlayHandler {
         let monitor = self.monitors.get(active_monitor)?;
 
         let ws = workspaces.iter().find(|w| w.active)?;
-        let hwnds = ws
+        let mut hwnds = ws
             .hwnds
             .iter()
             .filter(|a| a.monitor == active_monitor)
             .collect::<Vec<_>>();
-
+        hwnds.sort_by_key(|item| {
+            self.apps
+                .get(&item.hwnd)
+                .map(|app| win_api::get_dwm_rect(hwnd!(app.hwnd), 0).l)
+                .unwrap_or(i32::MAX)
+        });
         // Get the active (resized) app hwnd
         let active_hwnd = self.get_props()?.app.hwnd;
 
@@ -628,71 +633,6 @@ impl OverlayHandler {
             xpos += (ratios[i] * monitor.width as f32) as i32;
         }
 
-        // NOT GOOD
-        // let mut ratios = Vec::new();
-        // let mut total = 0.0;
-
-        // for item in &hwnds {
-        //     let app = self.apps.get(&item.hwnd)?;
-        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
-        //     let r = (rect.r - rect.l) as f32 / monitor.width as f32;
-        //     ratios.push(r);
-        //     total += r;
-        // }
-        // if total > 1.0 {
-        //     // find largest ratio index
-        //     if let Some((max_index, _)) = ratios
-        //         .iter()
-        //         .enumerate()
-        //         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-        //     {
-        //         let overflow = total - 1.0;
-        //         ratios[max_index] -= overflow;
-        //     }
-        // }
-        // let mut xpos = 0;
-
-        // for (i, item) in hwnds.iter().enumerate() {
-        //     let app = self.apps.get(&item.hwnd)?;
-        //     let ratio = ratios[i];
-
-        //     self.transform_app(app, xpos, ratio);
-
-        //     xpos += (ratio * monitor.width as f32) as i32;
-        // }
-
-        // GOOD ORDER
-        // let mut xpos = 0;
-        // let mut accumulated_ratio = 0.0;
-        // let active_app = self.get_props()?.app;
-        // println!("WIDTH {}", active_app.size.width);
-        // for (i, item) in hwnds.iter().enumerate() {
-        //     let app = self.apps.get(&item.hwnd)?;
-        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
-
-        //     let ratio = if i == hwnds.len() - 1 {
-        //         // Last item takes the remaining space
-        //         1.0 - accumulated_ratio
-        //     } else {
-        //         let r = (rect.r - rect.l) as f32 / monitor.width as f32;
-        //         accumulated_ratio += r;
-        //         r
-        //     };
-
-        //     self.transform_app(app, xpos, ratio);
-
-        //     xpos += (ratio * monitor.width as f32) as i32;
-        // }
-
-        //ORIGINAL
-        // let mut xpos = 0;
-        // for item in &hwnds {
-        //     let app = self.apps.get(&item.hwnd)?;
-        //     let rect = win_api::get_dwm_rect(hwnd!(app.hwnd), 0);
-        //     let ratio = (rect.r - rect.l) as f32 / monitor.width as f32;
-        //     self.transform_app(app, xpos, ratio);
-        //     xpos += rect.r - rect.l;
-        // }
         Some(())
     }
 
