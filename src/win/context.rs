@@ -738,7 +738,7 @@ impl AppContext {
 
             // Update app rect
             let app = &mut self.apps[app_index];
-            app.rect = AppRect::width(&app.rect, width);
+            app.rect = AppRect::set_width(&app.rect, width);
 
             self.apply_layout_in_workspace();
         }
@@ -770,7 +770,7 @@ impl AppContext {
     }
     pub fn resize_width(&mut self, val: i32) -> anyhow::Result<()> {
         let app = self.floating_app()?;
-        let target = AppRect::width(&app.rect, val);
+        let target = AppRect::add_to_width(&app.rect, val);
         let hwnd = app.hwnd;
         self.update_app_rect(app.hwnd, |md| {
             if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
@@ -783,7 +783,7 @@ impl AppContext {
     }
     pub fn resize_height(&mut self, val: i32) -> anyhow::Result<()> {
         let app = self.floating_app()?;
-        let target = AppRect::height(&app.rect, val);
+        let target = AppRect::add_to_height(&app.rect, val);
         let hwnd = app.hwnd;
         self.update_app_rect(hwnd, |md| {
             if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {

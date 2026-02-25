@@ -106,7 +106,7 @@ impl AppRect {
             height: r.height,
         }
     }
-    pub fn width(r: &AppRect, inc: i32) -> Self {
+    pub fn set_width(r: &AppRect, width: i32) -> Self {
         Self {
             l: r.l,
             t: r.t,
@@ -116,7 +116,17 @@ impl AppRect {
             height: r.height,
         }
     }
-    pub fn height(r: &AppRect, inc: i32) -> Self {
+    pub fn add_to_width(r: &AppRect, inc: i32) -> Self {
+        Self {
+            l: r.l,
+            t: r.t,
+            r: r.r + inc,
+            b: r.b,
+            width: inc + r.width,
+            height: r.height,
+        }
+    }
+    pub fn add_to_height(r: &AppRect, inc: i32) -> Self {
         Self {
             l: r.l,
             t: r.t,
