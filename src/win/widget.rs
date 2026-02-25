@@ -1,23 +1,60 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
-use parking_lot::Mutex;
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     UI::WindowsAndMessaging::PostMessageW,
 };
 
-use crate::overlay::{
-    color,
-    manager::{STATUSBAR_HEIGHT, Shared, WM_UPDATE_STATUSBAR},
-    statusbar::{SlotText, StatusBar, StatusBarFont, Visibility},
-    workspaces::{Hwnd, Workspace},
+use crate::{
+    col,
+    win::{
+        statusbar::{SlotText, StatusBar, StatusBarFont, Visibility, WM_UPDATE_STATUSBAR},
+        winapi::STATUSBAR_HEIGHT,
+    },
 };
 
-pub enum WorkspaceIndicatorPosition {
+pub type Hwnd = isize;
+#[derive(Clone, Debug)]
+pub struct HwndItem {
+    pub hwnd: Hwnd,
+    pub app_name: String,
+    pub monitor: usize,
+    pub floating: bool,
+    pub parked_position: Option<i32>,
+}
+impl HwndItem {
+    pub fn new(hwnd: Hwnd, app_name: &str, monitor: usize) -> Self {
+        Self {
+            hwnd,
+            app_name: app_name.to_string(),
+            monitor,
+            floating: false,
+            parked_position: None,
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub struct Workspace {
+    pub text: String,
+    pub active: bool,
+    pub hwnds: Vec<HwndItem>,
+}
+
+impl Workspace {
+    pub fn new(ws: &str, hwnds: Vec<HwndItem>) -> Self {
+        Self {
+            text: ws.to_string(),
+            active: true,
+            hwnds,
+        }
+    }
+}
+
+pub enum WsIndicatorPos {
     Left,
     Center,
     Right,
-    None, // hide it
+    None,
 }
 pub enum SlotGrid {
     Left,
@@ -28,7 +65,7 @@ pub struct WidgetSlots {
     pub left: BTreeMap<String, Vec<SlotText>>,
     pub center: BTreeMap<String, Vec<SlotText>>,
     pub right: BTreeMap<String, Vec<SlotText>>,
-    pub workspace_indicator: WorkspaceIndicatorPosition,
+    pub workspace_indicator: WsIndicatorPos,
     pub hwnd: Option<isize>,
     pub workspaces: Vec<Workspace>,
     pub active_workspace_per_monitor: Vec<usize>,
@@ -40,7 +77,7 @@ impl Default for WidgetSlots {
             left: BTreeMap::new(),
             center: BTreeMap::new(),
             right: BTreeMap::new(),
-            workspace_indicator: WorkspaceIndicatorPosition::Center,
+            workspace_indicator: WsIndicatorPos::Center,
             hwnd: None,
             workspaces: vec![],
             active_workspace_per_monitor: vec![0; 2],
@@ -105,19 +142,24 @@ impl WidgetSlots {
             .enumerate()
             .map(|(idx, ws)| {
                 let has_apps = ws.hwnds.iter().any(|h| h.monitor == monitor_index);
-                SlotText::new(format!("{} :{}", ws.text, ws.hwnds.len()))
-                    .fg(if has_apps {
-                        if active == idx { color::BG } else { color::FG }
+                SlotText::new(format!("{}", ws.text))
+                    .fg(if has_apps && active == idx {
+                        col!(primary_content)
                     } else {
-                        color::DIM_FG
+                        if active == idx {
+                            col!(base_300)
+                        } else {
+                            col!(dim_content)
+                        }
                     })
                     .bg({
                         if active == idx {
-                            color::DANGER
+                            col!(success)
                         } else {
-                            color::BG
+                            col!(base_300)
                         }
                     })
+                    .bold()
             })
             .collect()
     }
@@ -128,22 +170,22 @@ impl WidgetSlots {
         let mut center = self.center.values().flatten().cloned().collect();
         let mut right = self.right.values().flatten().cloned().collect();
         match self.workspace_indicator {
-            WorkspaceIndicatorPosition::Left => {
+            WsIndicatorPos::Left => {
                 let mut m = ws;
                 m.extend(left);
                 left = m;
             }
-            WorkspaceIndicatorPosition::Center => {
+            WsIndicatorPos::Center => {
                 let mut m = ws;
                 m.extend(center);
                 center = m;
             }
-            WorkspaceIndicatorPosition::Right => {
+            WsIndicatorPos::Right => {
                 let mut m = ws;
                 m.extend(right);
                 right = m;
             }
-            WorkspaceIndicatorPosition::None => {}
+            WsIndicatorPos::None => {}
         }
         let statusbar = StatusBar {
             left,

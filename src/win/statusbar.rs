@@ -1,5 +1,3 @@
-use std::{collections::BTreeMap, sync::Arc};
-
 use anyhow::Result;
 use windows::{
     Win32::{
@@ -17,11 +15,12 @@ use windows::{
     core::*,
 };
 
-use crate::overlay::{
-    color::Color,
-    manager::{STATUSBAR_HEIGHT, WM_UPDATE_STATUSBAR},
-    monitor_info::{self, StatusbarMonitorInfo},
+use crate::{
+    col,
+    win::winapi::{MonitorInfo, WindowsAPI, get_statusbar_height},
 };
+
+pub const WM_UPDATE_STATUSBAR: u32 = WM_USER + 1;
 
 #[derive(Clone, Debug)]
 pub struct SlotText {
@@ -35,8 +34,8 @@ impl SlotText {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            fg: Color::hex(0xFFFFFF),
-            bg: Color::hex(0x08000000),
+            fg: col!(base_content),
+            bg: col!(base_trans),
             font_weight: DWRITE_FONT_WEIGHT_NORMAL,
             font_style: DWRITE_FONT_STYLE_NORMAL,
         }
@@ -110,6 +109,7 @@ impl Default for StatusBar {
     }
 }
 
+#[derive(Debug)]
 struct StatusbarData {
     render_target: ID2D1HwndRenderTarget,
     border_brush: ID2D1SolidColorBrush,
@@ -123,12 +123,12 @@ struct StatusbarData {
 pub struct StatusbarWindow {
     hwnd: HWND,
 }
+
 impl StatusbarWindow {
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
-
-    pub fn new(monitor_info: &StatusbarMonitorInfo) -> Result<Self> {
+    pub fn new(monitor_info: &MonitorInfo) -> Result<Self> {
         let d2d_factory: ID2D1Factory =
             unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }?;
         let class_name = w!("StatusbarWindowYoo");
@@ -164,9 +164,9 @@ impl StatusbarWindow {
             )?
         };
 
-        let monitor_rect = monitor_info::resolve_monitor_rect(hwnd, Some(monitor_info.index));
+        let monitor_rect = WindowsAPI::resolve_monitor_rect(hwnd, Some(monitor_info.index));
         let width = monitor_rect.right - monitor_rect.left;
-        let height = STATUSBAR_HEIGHT;
+        let height = get_statusbar_height(monitor_info.index);
         let x = monitor_rect.left;
         let y = monitor_rect.top;
         unsafe {
@@ -213,7 +213,7 @@ impl StatusbarWindow {
 
         let render_target = unsafe { d2d_factory.CreateHwndRenderTarget(&props, &hwnd_props) }?;
 
-        let border_color_d2d = Color::hex(0x000000);
+        let border_color_d2d = col!(base_trans);
         let border_brush = unsafe { render_target.CreateSolidColorBrush(&border_color_d2d, None) }?;
         let dwrite_factory =
             unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) }?;
@@ -227,12 +227,14 @@ impl StatusbarWindow {
             dwrite_factory,
             rect: (x, y, width, height as i32),
         });
+        println!("SB DATA {:?}", &statusbar_data);
         unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(statusbar_data) as isize) };
         _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
         _ = unsafe { UpdateWindow(hwnd) };
 
         Ok(Self { hwnd })
     }
+
     unsafe extern "system" fn wnd_proc(
         hwnd: HWND,
         msg: u32,
@@ -332,10 +334,6 @@ impl StatusbarWindow {
             WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
             WM_ERASEBKGND => LRESULT(1),
             WM_DESTROY => {
-                // unsafe {
-                //     PostQuitMessage(0);
-                // }
-                // return LRESULT(0);
                 let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
                 if ptr != 0 {
                     let _ = unsafe { Box::from_raw(ptr as *mut StatusbarData) };
@@ -347,7 +345,6 @@ impl StatusbarWindow {
         }
     }
 }
-
 unsafe fn draw_statusbar(
     data: &StatusbarData,
     bar: &StatusBar,
@@ -369,7 +366,7 @@ unsafe fn draw_statusbar(
     };
     let bg_rect_fill = unsafe {
         data.render_target
-            .CreateSolidColorBrush(&Color::hex(0x2f000000), None)
+            .CreateSolidColorBrush(&col!(base_trans), None)
     }?;
     unsafe {
         data.render_target
