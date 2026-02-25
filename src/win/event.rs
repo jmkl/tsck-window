@@ -14,6 +14,11 @@ macro_rules! win_event_builder {
           }
         }
         impl $event_name{
+          pub fn to_str(&self)->String{
+            return match self {
+              $($event_name::$enum_val => $str_val.to_string(), )*
+            }
+          }
           pub fn parse_event<'a>(id:u32)->&'a str{
             return match id {
               $($int_val => $str_val, )*
@@ -25,7 +30,7 @@ macro_rules! win_event_builder {
     };
 }
 
-win_event_builder! { WinEvent,
+win_event_builder! { WindowsEvent,
   (45055, "EVENT_AIA_END", AiaEnd),
   (40960, "EVENT_AIA_START", AiaStart),
   (16385, "EVENT_CONSOLE_CARET", ConsoleCaret),
