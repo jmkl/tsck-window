@@ -19,12 +19,16 @@ pub enum Direction {
 pub enum AppFunction {
     Debug,
     CycleSizeFactor,
-    ToggleTopMost,
+    ToggleFloating,
     CycleWorkspace(Direction),
     MoveApp(Direction),
     FocusApp(Direction),
     CycleApp(Direction),
     MoveAppToWorkspace(Direction),
+    ResizeWidth(i32),
+    ResizeHeight(i32),
+    TransformX(i32),
+    TransformY(i32),
 }
 
 #[derive(Debug, NtekDes, NtekSer)]
@@ -37,7 +41,6 @@ pub struct WinNtek {
     pub hotkeys: HashMap<String, AppFunc>,
     pub workspaces: Vec<String>,
     pub blacklist: Vec<String>,
-    pub floating: Vec<String>,
     pub size_factor: Vec<f32>,
 }
 
@@ -127,8 +130,20 @@ impl AppFunction {
             AppFunction::FocusApp(direction) => {
                 ctx.lock().focus_app(direction)?;
             }
-            AppFunction::ToggleTopMost => {
-                ctx.lock().toggle_top_most()?;
+            AppFunction::ToggleFloating => {
+                ctx.lock().toggle_floating()?;
+            }
+            AppFunction::ResizeWidth(value) => {
+                ctx.lock().resize_width(*value)?;
+            }
+            AppFunction::ResizeHeight(value) => {
+                ctx.lock().resize_height(*value)?;
+            }
+            AppFunction::TransformX(value) => {
+                ctx.lock().transform_x(*value)?;
+            }
+            AppFunction::TransformY(value) => {
+                ctx.lock().transform_y(*value)?;
             }
         }
         Ok(())

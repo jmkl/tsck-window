@@ -1,8 +1,5 @@
 #![allow(unused)]
-use crate::{
-    hwnd,
-    win::winapi::{self, AppData, AppRect, WindowsAPI},
-};
+use crate::win::winapi::{self, AppData, AppRect, WindowsAPI};
 use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::HWND,
@@ -264,7 +261,7 @@ pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
     let rect = rect.clone();
     let to_rect = to_rect.clone();
     std::thread::spawn(move || {
-        let hwnd_raw = hwnd!(hwnd);
+        let hwnd_raw = crate::h!(hwnd);
         let duration = Duration::from_millis(150);
         let start_time = Instant::now();
 
@@ -275,28 +272,11 @@ pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
 
             let new_rect = map_value(&rect, &to_rect, eased_t);
             WindowsAPI::transform_to(hwnd, &new_rect);
-            // unsafe {
-            //     if let Ok(hdwp) = BeginDeferWindowPos(1) {
-            //         if let Ok(hdwp) = DeferWindowPos(
-            //             hdwp,
-            //             hwnd_raw,
-            //             None,
-            //             new_rect.l,
-            //             new_rect.t,
-            //             new_rect.width.max(0),
-            //             new_rect.height.max(0),
-            //             SWP_NOZORDER | SWP_NOACTIVATE,
-            //         ) {
-            //             let _ = EndDeferWindowPos(hdwp);
-            //         }
-            //     }
-            // }
 
             if t >= 1.0 {
                 break;
             }
 
-            // Sleep only the remaining time until next 60hz frame
             let frame_duration = Duration::from_micros(16_667);
             let next_frame = start_time
                 + Duration::from_micros(
@@ -307,7 +287,6 @@ pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
                 std::thread::sleep(next_frame - now);
             }
         }
-        // Snap to final position
         WindowsAPI::transform_to(hwnd, &to_rect);
     });
 }
