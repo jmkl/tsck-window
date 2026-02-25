@@ -17,15 +17,7 @@ use windows::{
 
 use crate::{
     col,
-<<<<<<< HEAD
-    win::{
-        self,
-        theme::th,
-        winapi::{MonitorInfo, WindowsAPI, get_statusbar_height},
-    },
-=======
     win::winapi::{MonitorInfo, WindowsAPI, get_statusbar_height},
->>>>>>> cleanup
 };
 
 pub const WM_UPDATE_STATUSBAR: u32 = WM_USER + 1;

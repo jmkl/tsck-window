@@ -6,9 +6,6 @@ workspaces = [
     "Text Editor"
 ]
 
-floating = [
-    "wezterm-gui"
-]
 
 blacklist = [
     "tsck",
@@ -20,17 +17,35 @@ blacklist = [
 ]
 
 hotkeys = {
-    C-S-pagedown        : Func::CycleWorkspace(Prev),
-    C-S-pageup          : Func::CycleWorkspace(Next),
-    S-A-pagedown        : Func::CycleApp(Prev),
-    S-A-pageup          : Func::CycleApp(Next),
-    C-S-A-pagedown      : Func::MoveAppToWorkspace(Prev),
-    C-S-A-pageup        : Func::MoveAppToWorkspace(Next),
-    C-S-p               : Func::Debug,
-    C-S-t               : Func::ToggleTopMost,
-    C-S-f               : Func::CycleSizeFactor,
-    C-S-A-left          : Func::MoveApp(Prev),
-    C-S-A-right         : Func::MoveApp(Next),
-    C-S-left            : Func::FocusApp(Prev),
-    C-S-right           : Func::FocusApp(Next),
+    M-pagedown        : Func::CycleWorkspace(Prev),
+    M-pageup          : Func::CycleWorkspace(Next),
+    M-S-pagedown      : Func::CycleApp(Prev),
+    M-S-pageup        : Func::CycleApp(Next),
+    M-C-S-pagedown    : Func::MoveAppToWorkspace(Prev),
+    M-C-S-pageup      : Func::MoveAppToWorkspace(Next),
+    M-S-p             : Func::Debug,
+    M-S-t             : Func::ToggleFloating,
+    M-S-f             : Func::CycleSizeFactor,
+    M-S-left          : Func::MoveApp(Prev),
+    M-S-right         : Func::MoveApp(Next),
+    M-left            : Func::FocusApp(Prev),
+    M-right           : Func::FocusApp(Next),
+    M-S-C-up            : Func::TransformY(-50),
+    M-S-C-down          : Func::TransformY(50),
+    M-S-C-left          : Func::TransformX(-50),
+    M-S-C-right         : Func::TransformX(50),
+    M-C-up          : Func::ResizeHeight(-50),
+    M-C-down        : Func::ResizeHeight(50),
+    M-C-left        : Func::ResizeWidth(-50),
+    M-C-right       : Func::ResizeWidth(50),
 }
+# M-S-down       = workspace::MoveActiveWindow('down')
+# M-S-left       = workspace::MoveActiveWindow('left')
+# M-S-C-up       = workspace::ResizeActiveWindow(('dec','height'))
+# M-S-C-down     = workspace::ResizeActiveWindow(('inc','height'))
+# M-S-C-left     = workspace::ResizeActiveWindow(('dec','width'))
+# M-S-C-right    = workspace::ResizeActiveWindow(('inc','width'))
+# M-[            = workspace::CycleActiveWindowWidth
+# M-equal        = workspace::CycleActiveWindowPos
+# M-S-pageup     = workspace::CycleWorkspace('prev')
+# M-S-pagedown   = workspace::CycleWorkspace('next')

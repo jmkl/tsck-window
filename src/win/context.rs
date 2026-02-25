@@ -1,13 +1,9 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
-    col, dp, log_debug, log_error, log_warn,
+    col, dp, h, log_debug, log_error, log_warn,
     win::{
-<<<<<<< HEAD
-        animation::{self, AnimationEasing, CubicBezier},
-=======
         animation::{self},
->>>>>>> cleanup
         border::{BorderInfo, BorderOverlay},
         config::{Direction, WinNtek},
         statusbar::SlotText,
@@ -17,16 +13,8 @@ use crate::{
         winapi::{AppData, AppRect, MonitorInfo, STATUSBAR_HEIGHT, WinApp, WindowsAPI},
     },
 };
-<<<<<<< HEAD
-use anyhow::{Context, Result, anyhow, bail};
-use parking_lot::Mutex;
-use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PM_NOREMOVE, PeekMessageW, TranslateMessage,
-};
-=======
 use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
->>>>>>> cleanup
 
 pub type Shared<T> = Arc<Mutex<T>>;
 
@@ -36,7 +24,6 @@ pub struct StoredAppData {
     pub ratio: f32,
     pub workspace: usize,
     pub floating: bool,
-    pub top_most: bool,
 }
 
 pub struct AppContext {
@@ -51,13 +38,6 @@ pub struct AppContext {
     pub border_overlay: Shared<Option<BorderOverlay>>,
     pub top_most_overlay: Shared<Option<BorderOverlay>>,
     config: Arc<WinNtek>,
-}
-
-#[macro_export]
-macro_rules! h {
-    ($hwnd:expr) => {
-        windows::Win32::Foundation::HWND($hwnd as *mut std::ffi::c_void)
-    };
 }
 
 // =============================================================================
@@ -159,10 +139,9 @@ impl AppContext {
                     app.hwnd,
                     StoredAppData {
                         monitor,
-                        floating: self.config.floating.contains(&app.name),
+                        floating: false,
                         ratio: 1.0,
                         workspace: 0,
-                        top_most: false,
                     },
                 );
                 self.apps.push(app);
@@ -189,7 +168,6 @@ impl AppContext {
     pub fn on_location_change(&mut self, app: &AppData) -> anyhow::Result<()> {
         let _ = self.update_border(app);
         let maximize = WindowsAPI::is_window_maximized(h!(app.hwnd))?;
-        log_debug!("MAXIMIZED", maximize);
         if maximize {
             self.maximize_app(app.hwnd)?;
         }
@@ -207,10 +185,6 @@ impl AppContext {
                 });
             }
         }
-<<<<<<< HEAD
-        // self.validate_workspace_entries();
-=======
->>>>>>> cleanup
         self.arrange_app_on_drag_end();
     }
 
@@ -218,11 +192,6 @@ impl AppContext {
     pub fn on_focus_change(&mut self, app: &AppData) -> anyhow::Result<()> {
         self.active_app = Some(app.hwnd);
         self.widget_update_title(app);
-<<<<<<< HEAD
-        let apps = self.get_workspace_apps();
-=======
-        // let apps = self.get_workspace_apps();
->>>>>>> cleanup
         self.update_border(app)?;
 
         Ok(())
@@ -234,25 +203,36 @@ impl AppContext {
 // =============================================================================
 
 impl AppContext {
-    pub fn toggle_top_most(&mut self) -> anyhow::Result<()> {
+    pub fn toggle_floating(&mut self) -> anyhow::Result<()> {
         let app = self.active_app.ok_or(anyhow!("No active app"))?;
         {
+            let monitor_index = {
+                let monitor = WindowsAPI::get_app_monitor(h!(app), &self.monitors);
+                monitor
+            };
+            let mut app_rect: Option<AppRect> = None;
             self.update_stored_appdata(app, |hd| {
-                hd.top_most = !hd.top_most;
-                WindowsAPI::toggle_top_most(hd.top_most, h!(app));
+                hd.floating = !hd.floating;
+                WindowsAPI::toggle_top_most(hd.floating, h!(app));
+                if hd.floating {
+                    if let Some(rect) = WindowsAPI::center_scale(h!(app), monitor_index) {
+                        log_error!(dp!(&rect));
+                        app_rect = Some(rect);
+                    }
+                }
             });
+            if let Some(app_rect) = app_rect {
+                self.update_app_rect(app, |app| app.rect = app_rect);
+            }
         }
-<<<<<<< HEAD
-        let app = self
-=======
         let _app = self
->>>>>>> cleanup
             .apps
             .iter()
             .find(|a| a.hwnd == app)
             .ok_or(anyhow!("Cant find app"))?;
 
         self.update_topmost_border()?;
+        self.apply_layout_in_workspace();
 
         Ok(())
     }
@@ -272,14 +252,18 @@ impl AppContext {
 
     pub fn update_topmost_border(&self) -> Result<()> {
         const PADDING: i32 = 0;
-        let active = self.active_app.ok_or(anyhow!("cant find active app"))?;
+        let overlay = self.top_most_overlay.lock();
+        let overlay = overlay
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
 
+        let active = self.active_app.ok_or(anyhow!("cant find active app"))?;
         let topmost_app: Vec<isize> = self
             .store_appdata
             .iter()
             .filter_map(
                 |(hwnd, data)| {
-                    if data.top_most { Some(*hwnd) } else { None }
+                    if data.floating { Some(*hwnd) } else { None }
                 },
             )
             .collect();
@@ -289,17 +273,16 @@ impl AppContext {
             .iter()
             .filter(|app| topmost_app.contains(&app.hwnd))
             .collect::<Vec<_>>();
+
+        let mut binfos = Vec::new();
+
+        let parent_hwnd = overlay.hwnd();
+
         if let Some(pos) = apps.iter().position(|a| a.hwnd == active) {
             let active_app = apps[pos];
             apps.remove(pos);
             apps.insert(0, active_app);
         }
-        let mut binfos = Vec::new();
-        let overlay = self.top_most_overlay.lock();
-        let overlay = overlay
-            .as_ref()
-            .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
-        let parent_hwnd = overlay.hwnd();
 
         WindowsAPI::set_top_most(parent_hwnd);
         for app in apps {
@@ -311,13 +294,19 @@ impl AppContext {
             } else {
                 rect.t
             };
-
+            let color = {
+                if app.hwnd == active {
+                    th().warning
+                } else {
+                    th().accent
+                }
+            };
             let info = BorderInfo {
                 x: rect.l + (px / 2) + PADDING / 2,
                 y: y + PADDING / 2,
                 width: rect.width - px - PADDING,
                 height: rect.height - py - PADDING,
-                color: th().warning,
+                color: color,
                 thickness: 2.0,
                 radius: 5.0,
                 blacklist: self.config.blacklist.clone(),
@@ -334,7 +323,7 @@ impl AppContext {
         self.update_topmost_border()?;
         let active = self.get_active_app()?;
         if let Some(s) = self.store_appdata.get(&active) {
-            if s.top_most {
+            if s.floating {
                 let overlay = self.border_overlay.lock();
                 let overlay = overlay
                     .as_ref()
@@ -416,6 +405,7 @@ impl AppContext {
 
     pub fn widget_update_title(&mut self, app: &AppData) {
         if let Some(active_app) = self.active_app {
+            let title = crate::win::util::truncate(&app.title, 25);
             if active_app == app.hwnd {
                 self.user_widgets.lock().set_slot(
                     SlotGrid::Left,
@@ -426,7 +416,7 @@ impl AppContext {
                             .bg(col!(warning))
                             .fg(col!(warning_content))
                             .bold(),
-                        SlotText::new(app.title.as_str()).italic(),
+                        SlotText::new(title.as_str()).italic(),
                     ],
                 );
             }
@@ -748,11 +738,88 @@ impl AppContext {
 
             // Update app rect
             let app = &mut self.apps[app_index];
-            app.rect = AppRect::width(&app.rect, width);
+            app.rect = AppRect::set_width(&app.rect, width);
 
             self.apply_layout_in_workspace();
         }
 
+        Ok(())
+    }
+    fn floating_app(&self) -> anyhow::Result<&AppData> {
+        if let Some(app) = self.active_app {
+            if let Some(a) = self.store_appdata.get(&app) {
+                if a.floating {
+                    return self
+                        .apps
+                        .iter()
+                        .find(|a| a.hwnd == app)
+                        .ok_or(anyhow!("Cant find app"));
+                }
+            }
+        }
+        bail!("not a floating app")
+    }
+
+    fn update_app_rect<F>(&mut self, hwnd: isize, process: F)
+    where
+        F: FnOnce(&mut AppData),
+    {
+        if let Some(app) = self.apps.iter_mut().find(|a| a.hwnd == hwnd) {
+            process(app)
+        }
+    }
+    pub fn resize_width(&mut self, val: i32) -> anyhow::Result<()> {
+        let app = self.floating_app()?;
+        let target = AppRect::add_to_width(&app.rect, val);
+        let hwnd = app.hwnd;
+        self.update_app_rect(app.hwnd, |md| {
+            if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
+                log_error!("Error tranform to ", err);
+            } else {
+                md.rect = target;
+            }
+        });
+        Ok(())
+    }
+    pub fn resize_height(&mut self, val: i32) -> anyhow::Result<()> {
+        let app = self.floating_app()?;
+        let target = AppRect::add_to_height(&app.rect, val);
+        let hwnd = app.hwnd;
+        self.update_app_rect(hwnd, |md| {
+            if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
+                log_error!("Error resize_height to ", err);
+            } else {
+                md.rect = target;
+            }
+        });
+        Ok(())
+    }
+    pub fn transform_x(&mut self, val: i32) -> anyhow::Result<()> {
+        let app = self.floating_app()?;
+        let r = &app.rect;
+        let target = AppRect::move_x(&r, val);
+        let hwnd = app.hwnd;
+        self.update_app_rect(hwnd, |md| {
+            if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
+                log_error!("Error transform_x to ", err);
+            } else {
+                md.rect = target;
+            }
+        });
+        Ok(())
+    }
+    pub fn transform_y(&mut self, val: i32) -> anyhow::Result<()> {
+        let app = self.floating_app()?;
+        let r = &app.rect;
+        let target = AppRect::move_y(&r, val);
+        let hwnd = app.hwnd;
+        self.update_app_rect(hwnd, |md| {
+            if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
+                log_error!("Error tranform to ", err);
+            } else {
+                md.rect = target;
+            }
+        });
         Ok(())
     }
     pub fn maximize_app(&mut self, h: isize) -> anyhow::Result<()> {
@@ -769,15 +836,20 @@ impl AppContext {
                 Some(m) => m,
                 None => bail!("No Monitor found!"),
             };
-            if self.config.floating.contains(&app.name) {
+            if self
+                .store_appdata
+                .get(&app.hwnd)
+                .map(|f| f.floating)
+                .unwrap_or(false)
+            {
                 return Ok(());
             }
+
             let (px, py) = WindowsAPI::get_rect_padding(app.hwnd);
             let w = monitor.width + px;
             let h = monitor.height + (py / 2) - toolbar_height;
 
-            let target_rect = AppRect::xywh(monitor.left - px / 2, toolbar_height, w, h);
-            log_debug!(w, h, dp!(target_rect));
+            let target_rect = AppRect::new(monitor.left - px / 2, toolbar_height, w, h);
             let _ = WindowsAPI::transform_to(app.hwnd, &target_rect);
 
             app.rect = target_rect;
@@ -793,21 +865,6 @@ impl AppContext {
             });
         }
 
-<<<<<<< HEAD
-        // let props = self.get_props()?;
-        // let width =
-        //     (self.size_factor[self.width_selector_index] * props.monitor.width as f32) as i32;
-        // let height =
-        //     (self.size_factor[self.height_selector_index] * props.monitor.height as f32) as i32;
-        // let toolbar_height = self.get_statusbar_height(self.monitor_index_for(props.active_hwnd));
-
-        // let w = width + props.px;
-        // let h = height + (props.py / 2) - toolbar_height;
-        // let x = props.monitor.x + (-(props.px / 2));
-        // let y = toolbar_height;
-        // win_api::set_app_size_position(hwnd!(props.active_hwnd), x, y, w, h, true);
-=======
->>>>>>> cleanup
         Ok(())
     }
 }
@@ -848,7 +905,12 @@ impl AppContext {
         };
 
         for app in apps {
-            if self.config.floating.contains(&app.name) {
+            if self
+                .store_appdata
+                .get(&app.hwnd)
+                .map(|f| f.floating)
+                .unwrap_or(false)
+            {
                 continue;
             }
 
@@ -860,10 +922,10 @@ impl AppContext {
             let target_rect = if self.is_rtl() {
                 // Right-to-left: subtract width, then position
                 cursor_x -= visible_w;
-                AppRect::xywh(cursor_x - px / 2, toolbar_height, w, h)
+                AppRect::new(cursor_x - px / 2, toolbar_height, w, h)
             } else {
                 // Left-to-right: position first, then add width
-                let rect = AppRect::xywh(cursor_x - px / 2, toolbar_height, w, h);
+                let rect = AppRect::new(cursor_x - px / 2, toolbar_height, w, h);
                 cursor_x += visible_w;
                 rect
             };
@@ -876,11 +938,7 @@ impl AppContext {
         }
     }
 
-<<<<<<< HEAD
-    fn transform_app(
-=======
     fn _transform_app(
->>>>>>> cleanup
         &self,
         app: &AppData,
         xpos: i32,
@@ -911,7 +969,7 @@ impl AppContext {
         animation::animate_window(
             app.hwnd,
             &app.rect,
-            &AppRect::xywh(x - width, toolbar_height, w, h),
+            &AppRect::new(x - width, toolbar_height, w, h),
         );
 
         Some(w - px)
@@ -972,7 +1030,7 @@ impl AppContext {
             WindowsAPI::transform(
                 app.hwnd,
                 &app.rect,
-                &AppRect::xywh(app.rect.l, app.rect.t, app.rect.width, -app.rect.height),
+                &AppRect::new(app.rect.l, app.rect.t, app.rect.width, -app.rect.height),
             )?;
         }
 
