@@ -1,8 +1,5 @@
 #![allow(unused)]
-use crate::{
-    hwnd,
-    win::winapi::{self, AppData, AppRect, WindowsAPI},
-};
+use crate::win::winapi::{self, AppData, AppRect, WindowsAPI};
 use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::HWND,
@@ -264,7 +261,7 @@ pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
     let rect = rect.clone();
     let to_rect = to_rect.clone();
     std::thread::spawn(move || {
-        let hwnd_raw = hwnd!(hwnd);
+        let hwnd_raw = crate::hwnd!(hwnd);
         let duration = Duration::from_millis(150);
         let start_time = Instant::now();
 

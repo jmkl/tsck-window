@@ -17,10 +17,6 @@ macro_rules! win_event_builder {
           pub fn to_str(&self)->String{
             return match self {
               $($event_name::$enum_val => $str_val.to_string(), )*
-<<<<<<< HEAD
-              _=>"Unknown".to_string()
-=======
->>>>>>> cleanup
             }
           }
           pub fn parse_event<'a>(id:u32)->&'a str{

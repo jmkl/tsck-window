@@ -3,11 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use crate::{
     col, dp, log_debug, log_error, log_warn,
     win::{
-<<<<<<< HEAD
-        animation::{self, AnimationEasing, CubicBezier},
-=======
         animation::{self},
->>>>>>> cleanup
         border::{BorderInfo, BorderOverlay},
         config::{Direction, WinNtek},
         statusbar::SlotText,
@@ -17,16 +13,8 @@ use crate::{
         winapi::{AppData, AppRect, MonitorInfo, STATUSBAR_HEIGHT, WinApp, WindowsAPI},
     },
 };
-<<<<<<< HEAD
-use anyhow::{Context, Result, anyhow, bail};
-use parking_lot::Mutex;
-use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PM_NOREMOVE, PeekMessageW, TranslateMessage,
-};
-=======
 use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
->>>>>>> cleanup
 
 pub type Shared<T> = Arc<Mutex<T>>;
 
@@ -207,10 +195,6 @@ impl AppContext {
                 });
             }
         }
-<<<<<<< HEAD
-        // self.validate_workspace_entries();
-=======
->>>>>>> cleanup
         self.arrange_app_on_drag_end();
     }
 
@@ -218,11 +202,6 @@ impl AppContext {
     pub fn on_focus_change(&mut self, app: &AppData) -> anyhow::Result<()> {
         self.active_app = Some(app.hwnd);
         self.widget_update_title(app);
-<<<<<<< HEAD
-        let apps = self.get_workspace_apps();
-=======
-        // let apps = self.get_workspace_apps();
->>>>>>> cleanup
         self.update_border(app)?;
 
         Ok(())
@@ -242,11 +221,7 @@ impl AppContext {
                 WindowsAPI::toggle_top_most(hd.top_most, h!(app));
             });
         }
-<<<<<<< HEAD
-        let app = self
-=======
         let _app = self
->>>>>>> cleanup
             .apps
             .iter()
             .find(|a| a.hwnd == app)
@@ -793,21 +768,6 @@ impl AppContext {
             });
         }
 
-<<<<<<< HEAD
-        // let props = self.get_props()?;
-        // let width =
-        //     (self.size_factor[self.width_selector_index] * props.monitor.width as f32) as i32;
-        // let height =
-        //     (self.size_factor[self.height_selector_index] * props.monitor.height as f32) as i32;
-        // let toolbar_height = self.get_statusbar_height(self.monitor_index_for(props.active_hwnd));
-
-        // let w = width + props.px;
-        // let h = height + (props.py / 2) - toolbar_height;
-        // let x = props.monitor.x + (-(props.px / 2));
-        // let y = toolbar_height;
-        // win_api::set_app_size_position(hwnd!(props.active_hwnd), x, y, w, h, true);
-=======
->>>>>>> cleanup
         Ok(())
     }
 }
@@ -876,11 +836,7 @@ impl AppContext {
         }
     }
 
-<<<<<<< HEAD
-    fn transform_app(
-=======
     fn _transform_app(
->>>>>>> cleanup
         &self,
         app: &AppData,
         xpos: i32,
