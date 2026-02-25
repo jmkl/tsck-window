@@ -13,7 +13,11 @@ use windows::{
     core::*,
 };
 
+<<<<<<< HEAD
 use crate::{col, hex, log_error, win::winapi::WindowsAPI};
+=======
+use crate::{hex, log_error, win::winapi::WindowsAPI};
+>>>>>>> cleanup
 
 const WM_SET_FOCUS_BORDER: u32 = WM_USER + 30;
 const WM_SET_TOPMOST_BORDER: u32 = WM_USER + 31;
@@ -224,7 +228,10 @@ unsafe extern "system" fn wnd_proc(
                 let data = &mut *(data_ptr as *mut BorderOverlayData);
 
                 if lparam.0 == 0 || wparam.0 == 0 {
+<<<<<<< HEAD
                     // Clear: hide the window
+=======
+>>>>>>> cleanup
                     data.border_info = None;
                     let _ = SetWindowPos(
                         hwnd,
@@ -239,13 +246,17 @@ unsafe extern "system" fn wnd_proc(
                     let info = *Box::from_raw(wparam.0 as *mut BorderInfo);
                     let t = info.thickness as i32;
 
+<<<<<<< HEAD
                     // Expand the window slightly so the stroke isn't clipped
+=======
+>>>>>>> cleanup
                     let wx = info.x - t;
                     let wy = info.y - t;
                     let ww = info.width + t * 2;
                     let wh = info.height + t * 2;
                     let topwindow = WindowsAPI::top_window(&info.blacklist);
                     _ = SetWindowPos(hwnd, None, wx, wy, ww, wh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+<<<<<<< HEAD
                     // // Step 2: Demote to just above target
                     // _ = SetWindowPos(
                     //     hwnd,
@@ -256,6 +267,8 @@ unsafe extern "system" fn wnd_proc(
                     //     0,
                     //     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                     // );
+=======
+>>>>>>> cleanup
                     let _ = SetWindowPos(
                         hwnd,
                         topwindow,
@@ -265,6 +278,7 @@ unsafe extern "system" fn wnd_proc(
                         0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                     );
+<<<<<<< HEAD
                     // let _ = SetWindowPos(
                     //     hwnd,
                     //     topwindow,
@@ -274,6 +288,8 @@ unsafe extern "system" fn wnd_proc(
                     //     0,
                     //     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                     // );
+=======
+>>>>>>> cleanup
                     let _ = data.render_target.Resize(&D2D_SIZE_U {
                         width: ww as u32,
                         height: wh as u32,
@@ -341,8 +357,11 @@ unsafe extern "system" fn wnd_proc(
                                 .DrawRoundedRectangle(&rounded_rect, &brush, t, None);
                         }
                     }
+<<<<<<< HEAD
                     // Render topmost borders with clipping
                     // Render topmost borders with clipping
+=======
+>>>>>>> cleanup
                     if !data.topmost_border_info.is_empty() {
                         if let Ok(factory) = data.render_target.GetFactory() {
                             let factory: ID2D1Factory = factory.cast().unwrap();
@@ -350,11 +369,17 @@ unsafe extern "system" fn wnd_proc(
                             let virt_x = data.virt_x;
                             let virt_y = data.virt_y;
 
+<<<<<<< HEAD
                             // Draw from back to front (reverse order so first = topmost)
                             for i in (0..data.topmost_border_info.len()).rev() {
                                 let info = &data.topmost_border_info[i];
 
                                 // Collect all borders that should clip this one (those with lower index = higher z-order)
+=======
+                            for i in (0..data.topmost_border_info.len()).rev() {
+                                let info = &data.topmost_border_info[i];
+
+>>>>>>> cleanup
                                 let clip_against: Vec<&BorderInfo> =
                                     data.topmost_border_info[0..i].iter().collect();
 
@@ -377,7 +402,10 @@ unsafe extern "system" fn wnd_proc(
             }
 
             WM_SIZE => {
+<<<<<<< HEAD
                 // Resize is handled in WM_SET_FOCUS_BORDER now, but keep as fallback
+=======
+>>>>>>> cleanup
                 let data_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
                 if data_ptr != 0 {
                     let data = &*(data_ptr as *const BorderOverlayData);

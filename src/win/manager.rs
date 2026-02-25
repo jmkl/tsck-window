@@ -1,9 +1,14 @@
+<<<<<<< HEAD
 use crate::win::border::{self, BorderOverlay};
+=======
+use crate::win::border::BorderOverlay;
+>>>>>>> cleanup
 use crate::win::config::{WinNtek, spawn_commandline, spawn_hotkee};
 use crate::win::event::WindowsEvent as E;
 use crate::win::statusbar::StatusbarWindow;
 use crate::win::widget::Workspace;
 use crate::win::winapi::{self, WindowsAPI};
+<<<<<<< HEAD
 use crate::{dp, log_info, log_warn};
 use ntek;
 use std::sync::Arc;
@@ -17,6 +22,21 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 pub struct WinManager {
     context: Shared<AppContext>,
+=======
+use crate::{log_error, log_warn};
+use ntek;
+use std::sync::Arc;
+
+use crate::win::context::{AppContext, Shared};
+use anyhow::Result;
+use parking_lot::Mutex;
+use windows::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, GetMessageW, MSG, PM_NOREMOVE, PeekMessageW, TranslateMessage,
+};
+
+pub struct WinManager {
+    _context: Shared<AppContext>,
+>>>>>>> cleanup
 }
 impl WinManager {
     pub fn new() -> Self {
@@ -49,8 +69,12 @@ impl WinManager {
         Self::spawn_event_listener_service(context.clone());
         spawn_hotkee(ntek, context.clone());
         spawn_commandline(context.clone());
+<<<<<<< HEAD
         for x in 0..10 {}
         Self { context }
+=======
+        Self { _context: context }
+>>>>>>> cleanup
     }
     pub fn event_loop(&self) {
         loop {
@@ -71,7 +95,13 @@ impl WinManager {
                         hwnds.lock().push(window.hwnd().0 as isize);
                         std::mem::forget(window);
                     }
+<<<<<<< HEAD
                     Err(e) => log_warn!("Statusbar error: {e}"),
+=======
+                    Err(e) => {
+                        log_error!("Statusbar error ", e);
+                    }
+>>>>>>> cleanup
                 }
             }
             unsafe {

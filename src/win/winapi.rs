@@ -11,7 +11,11 @@ use windows::Win32::UI::{
     Accessibility::{HWINEVENTHOOK, SetWinEventHook},
     Input::KeyboardAndMouse::{
         INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
+<<<<<<< HEAD
         SendInput, SetActiveWindow, SetFocus,
+=======
+        SendInput,
+>>>>>>> cleanup
     },
 };
 use windows::{
@@ -25,7 +29,11 @@ use windows::{
 };
 
 use crate::{
+<<<<<<< HEAD
     d, dp, h, log_error,
+=======
+    h, log_error,
+>>>>>>> cleanup
     win::{animation, event::WindowsEvent},
 };
 
@@ -825,7 +833,11 @@ impl WindowsAPI {
 
         unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) }
     }
+<<<<<<< HEAD
     fn set_cursor_pos(x: i32, y: i32) -> anyhow::Result<()> {
+=======
+    fn _set_cursor_pos(x: i32, y: i32) -> anyhow::Result<()> {
+>>>>>>> cleanup
         unsafe { Ok(SetCursorPos(x, y)?) }
     }
 }
