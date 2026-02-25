@@ -1,5 +1,3 @@
-use std::thread;
-use std::time::Duration;
 use sysinfo::{Networks, System};
 
 pub struct SystemUsage {
@@ -53,7 +51,6 @@ impl SystemInfo {
     pub fn new() -> Self {
         let mut sys = sysinfo::System::new_all();
         let networks = sysinfo::Networks::new_with_refreshed_list();
-        // Init CPU baseline
         sys.refresh_cpu_usage();
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
         Self { sys, networks }
@@ -68,7 +65,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_sysinfo() {
-        let mut info = SystemInfo::new(); // call once
+        let mut info = SystemInfo::new();
 
         loop {
             let usage = info.update();

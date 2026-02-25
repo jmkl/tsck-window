@@ -1,9 +1,8 @@
 #![allow(unused)]
-use crate::hook::{
-    app_info::{AppPosition, AppSize},
-    win_api::{self, APP_WINDOW_PADDING},
+use crate::{
+    hwnd,
+    win::winapi::{self, AppData, AppRect, WindowsAPI},
 };
-use crate::hwnd;
 use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::HWND,
@@ -12,6 +11,84 @@ use windows::Win32::{
         BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
     },
 };
+#[derive(Clone, Debug, PartialEq)]
+pub struct CubicBezier {
+    pub p1x: f64,
+    pub p1y: f64,
+    pub p2x: f64,
+    pub p2y: f64,
+}
+
+impl CubicBezier {
+    pub fn new(p1x: f64, p1y: f64, p2x: f64, p2y: f64) -> Self {
+        Self { p1x, p1y, p2x, p2y }
+    }
+
+    // Preset equivalents to CSS easings
+    pub fn ease() -> Self {
+        Self::new(0.25, 0.1, 0.25, 1.0)
+    }
+    pub fn ease_in() -> Self {
+        Self::new(0.42, 0.0, 1.0, 1.0)
+    }
+    pub fn ease_out() -> Self {
+        Self::new(0.0, 0.0, 0.58, 1.0)
+    }
+    pub fn ease_in_out() -> Self {
+        Self::new(0.42, 0.0, 0.58, 1.0)
+    }
+    pub fn spring() -> Self {
+        Self::new(0.34, 1.56, 0.64, 1.0)
+    }
+    pub fn bounce() -> Self {
+        Self::new(0.34, 1.8, 0.64, 1.0)
+    }
+
+    // Sample the X component of the bezier curve at parameter t
+    fn sample_x(&self, t: f64) -> f64 {
+        let mt = 1.0 - t;
+        3.0 * mt * mt * t * self.p1x + 3.0 * mt * t * t * self.p2x + t * t * t
+    }
+
+    // Sample the Y component (the eased value)
+    fn sample_y(&self, t: f64) -> f64 {
+        let mt = 1.0 - t;
+        3.0 * mt * mt * t * self.p1y + 3.0 * mt * t * t * self.p2y + t * t * t
+    }
+
+    // Derivative of X — used for Newton's method
+    fn sample_x_derivative(&self, t: f64) -> f64 {
+        let mt = 1.0 - t;
+        3.0 * (mt * mt * self.p1x + 2.0 * mt * t * (self.p2x - self.p1x) + t * t * (1.0 - self.p2x))
+    }
+
+    // Given input x (0..1), find the bezier parameter t via Newton's method
+    // then sample Y at that t
+    pub fn evaluate(&self, x: f64) -> f64 {
+        if x <= 0.0 {
+            return 0.0;
+        }
+        if x >= 1.0 {
+            return 1.0;
+        }
+
+        // Newton-Raphson to find t where sample_x(t) == x
+        let mut t = x; // initial guess
+        for _ in 0..8 {
+            let x_err = self.sample_x(t) - x;
+            if x_err.abs() < 1e-7 {
+                break;
+            }
+            let dx = self.sample_x_derivative(t);
+            if dx.abs() < 1e-6 {
+                break;
+            }
+            t -= x_err / dx;
+        }
+
+        self.sample_y(t)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnimationEasing {
@@ -41,6 +118,7 @@ pub enum AnimationEasing {
     EaseOutElastic,
     EaseOutBounce,
     EaseInBounce,
+    CubicBezier(CubicBezier),
 }
 impl AnimationEasing {
     pub fn evaluate(&self, t: f64) -> f64 {
@@ -161,71 +239,75 @@ impl AnimationEasing {
                 }
             }
             AnimationEasing::EaseInBounce => 1.0 - AnimationEasing::EaseOutBounce.evaluate(1.0 - t),
+            AnimationEasing::CubicBezier(b) => b.evaluate(t),
         }
     }
 }
-pub fn map_value(start: (i32, i32), end: (i32, i32), eased_t: f64) -> (i32, i32) {
-    let new_x = start.0 as f64 + (end.0 - start.0) as f64 * eased_t;
-    let new_y = start.1 as f64 + (end.1 - start.1) as f64 * eased_t;
-    (new_x as i32, new_y as i32)
+pub fn map_value(start: &AppRect, end: &AppRect, eased_t: f64) -> AppRect {
+    let new_x = start.l as f64 + (end.l - start.l) as f64 * eased_t;
+    let new_y = start.t as f64 + (end.t - start.t) as f64 * eased_t;
+    let new_width = start.width as f64 + (end.width - start.width) as f64 * eased_t;
+    let new_height = start.height as f64 + (end.height - start.height) as f64 * eased_t;
+
+    AppRect {
+        l: new_x as i32,
+        t: new_y as i32,
+        r: (new_x + new_width) as i32,
+        b: (new_y + new_height) as i32,
+        width: new_width as i32,
+        height: new_height as i32,
+    }
 }
 
-pub fn animate_window(
-    hwnd: isize,
-    pos: AppPosition,
-    to_pos: AppPosition,
-    size: AppSize,
-    to_size: AppSize,
-    easing: AnimationEasing,
-) {
+pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
+    let easing = AnimationEasing::CubicBezier(CubicBezier::bounce());
+    let rect = rect.clone();
+    let to_rect = to_rect.clone();
     std::thread::spawn(move || {
-        let hwnd = hwnd!(hwnd);
-        let start_time = Instant::now();
+        let hwnd_raw = hwnd!(hwnd);
         let duration = Duration::from_millis(150);
+        let start_time = Instant::now();
 
         loop {
             let elapsed = start_time.elapsed();
-            if elapsed >= duration {
+            let t = (elapsed.as_secs_f64() / duration.as_secs_f64()).min(1.0);
+            let eased_t = easing.evaluate(t);
+
+            let new_rect = map_value(&rect, &to_rect, eased_t);
+            WindowsAPI::transform_to(hwnd, &new_rect);
+            // unsafe {
+            //     if let Ok(hdwp) = BeginDeferWindowPos(1) {
+            //         if let Ok(hdwp) = DeferWindowPos(
+            //             hdwp,
+            //             hwnd_raw,
+            //             None,
+            //             new_rect.l,
+            //             new_rect.t,
+            //             new_rect.width.max(0),
+            //             new_rect.height.max(0),
+            //             SWP_NOZORDER | SWP_NOACTIVATE,
+            //         ) {
+            //             let _ = EndDeferWindowPos(hdwp);
+            //         }
+            //     }
+            // }
+
+            if t >= 1.0 {
                 break;
             }
 
-            let t = elapsed.as_secs_f64() / duration.as_secs_f64();
-            let eased_t = easing.evaluate(t.min(1.0));
-
-            let new_pos = map_value((pos.x, pos.y), (to_pos.x, to_pos.y), eased_t);
-            let new_size = map_value(
-                (size.width as i32, size.height as i32),
-                (to_size.width, to_size.height),
-                eased_t,
-            );
-
-            unsafe {
-                let hdwp = BeginDeferWindowPos(1);
-                if let Ok(hdwp) = hdwp {
-                    let _ = DeferWindowPos(
-                        hdwp,
-                        hwnd,
-                        None,
-                        new_pos.0 + APP_WINDOW_PADDING,
-                        new_pos.1 + APP_WINDOW_PADDING,
-                        (new_size.0 - APP_WINDOW_PADDING * 2).max(0),
-                        (new_size.1 - APP_WINDOW_PADDING * 2).max(0),
-                        SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-                    EndDeferWindowPos(hdwp);
-                }
+            // Sleep only the remaining time until next 60hz frame
+            let frame_duration = Duration::from_micros(16_667);
+            let next_frame = start_time
+                + Duration::from_micros(
+                    (start_time.elapsed().as_micros() as u64 / 16_667 + 1) * 16_667,
+                );
+            let now = Instant::now();
+            if next_frame > now {
+                std::thread::sleep(next_frame - now);
             }
-
-            std::thread::sleep(Duration::from_millis(1000 / 60));
         }
-
-        win_api::set_app_size_position(
-            hwnd,
-            to_pos.x,
-            to_pos.y,
-            to_size.width,
-            to_size.height,
-            true,
-        );
+        // Snap to final position
+        WindowsAPI::transform_to(hwnd, &to_rect);
     });
 }
