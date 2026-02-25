@@ -1,0 +1,36 @@
+size_factor = [1.0, 0.75, 0.666666, 0.5, 0.333333, 0.25]
+workspaces = [
+    "Graphic",
+    "Porn",
+    "InterWeb",
+    "Text Editor"
+]
+
+floating = [
+    "wezterm-gui"
+]
+
+blacklist = [
+    "tsck",
+    "TextInputHost",
+    "msedgewebview2",
+    "Microsoft.CmdPal.UI",
+    "StartMenuExperienceHost",
+    "SearchHost"
+]
+
+hotkeys = {
+    C-S-pagedown        : Func::CycleWorkspace(Prev),
+    C-S-pageup          : Func::CycleWorkspace(Next),
+    S-A-pagedown        : Func::CycleApp(Prev),
+    S-A-pageup          : Func::CycleApp(Next),
+    C-S-A-pagedown      : Func::MoveAppToWorkspace(Prev),
+    C-S-A-pageup        : Func::MoveAppToWorkspace(Next),
+    C-S-p               : Func::Debug,
+    C-S-t               : Func::ToggleTopMost,
+    C-S-f               : Func::CycleSizeFactor,
+    C-S-A-left          : Func::MoveApp(Prev),
+    C-S-A-right         : Func::MoveApp(Next),
+    C-S-left            : Func::FocusApp(Prev),
+    C-S-right           : Func::FocusApp(Next),
+}
