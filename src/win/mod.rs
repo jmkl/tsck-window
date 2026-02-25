@@ -8,5 +8,6 @@ pub mod manager;
 pub mod statusbar;
 pub mod sys;
 pub mod theme;
+pub mod util;
 pub mod widget;
 pub mod winapi;

@@ -76,7 +76,7 @@ pub struct AppRect {
     pub height: i32,
 }
 impl AppRect {
-    pub fn xywh(x: i32, y: i32, width: i32, height: i32) -> Self {
+    pub fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
         Self {
             l: x,
             t: y,
@@ -86,14 +86,44 @@ impl AppRect {
             height,
         }
     }
-    pub fn width(r: &AppRect, width: i32) -> Self {
+    pub fn move_x(r: &AppRect, val: i32) -> Self {
+        Self {
+            l: r.l + val,
+            r: r.r + val,
+            t: r.t,
+            b: r.b,
+            width: r.width,
+            height: r.height,
+        }
+    }
+    pub fn move_y(r: &AppRect, val: i32) -> Self {
+        Self {
+            l: r.l,
+            r: r.r,
+            t: r.t + val,
+            b: r.b + val,
+            width: r.width,
+            height: r.height,
+        }
+    }
+    pub fn width(r: &AppRect, inc: i32) -> Self {
         Self {
             l: r.l,
             t: r.t,
-            r: r.r + width,
-            b: r.b + r.height,
-            width: width,
+            r: r.r + inc,
+            b: r.b,
+            width: inc + r.width,
             height: r.height,
+        }
+    }
+    pub fn height(r: &AppRect, inc: i32) -> Self {
+        Self {
+            l: r.l,
+            t: r.t,
+            r: r.r,
+            b: r.b + inc,
+            width: r.width,
+            height: r.height + inc,
         }
     }
     pub fn xy(rect: &AppRect, x: i32, y: i32) -> Self {
@@ -200,6 +230,25 @@ impl WindowsAPI {
         }
 
         true.into()
+    }
+    pub fn center_scale(hwnd: HWND, monitor: Option<usize>) -> Option<AppRect> {
+        if let Some(idx) = monitor {
+            let monitors = Self::get_all_monitors();
+            let m = &monitors[idx];
+            let w = m.width / 2;
+            let h = m.height / 2;
+            let target = AppRect {
+                l: m.left + w / 2,
+                t: m.top + h / 2,
+                r: m.left + w,
+                b: m.right + h,
+                width: w,
+                height: h,
+            };
+            _ = Self::transform_to(hwnd.0 as isize, &target);
+            return Some(target);
+        }
+        None
     }
     pub fn get_app_monitor(hwnd: HWND, monitors: &[MonitorInfo]) -> Option<usize> {
         let current = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
@@ -312,8 +361,8 @@ impl WindowsAPI {
     }
 
     pub fn get_rect_padding(hwnd: isize) -> (i32, i32) {
-        let dwm_rect = Self::get_dwm_rect(crate::hwnd!(hwnd), 0);
-        let rect = Self::get_rect(crate::hwnd!(hwnd));
+        let dwm_rect = Self::get_dwm_rect(crate::h!(hwnd), 0);
+        let rect = Self::get_rect(crate::h!(hwnd));
         let x = rect.width - dwm_rect.width;
         let y = rect.height - dwm_rect.height;
         (x, y)

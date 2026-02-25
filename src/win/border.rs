@@ -182,7 +182,7 @@ impl BorderOverlay {
                 Some(self.hwnd()),
                 WM_SET_TOPMOST_BORDER,
                 WPARAM(Box::into_raw(payload) as usize),
-                LPARAM(1), // 1 = has focus
+                LPARAM(1),
             );
         }
     }
@@ -193,7 +193,7 @@ impl BorderOverlay {
                 Some(self.hwnd()),
                 WM_SET_TOPMOST_BORDER,
                 WPARAM(0),
-                LPARAM(0), // 0 = clear
+                LPARAM(0),
             );
         }
     }
