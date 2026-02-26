@@ -5,7 +5,7 @@ use ntek_derive::{NtekDes, NtekSer};
 use tsck_kee::{Kee, TKeePair};
 
 use crate::{
-    d, dp, log_debug, log_error,
+    dp, log_error,
     win::context::{AppContext, Shared},
 };
 
@@ -92,7 +92,6 @@ pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<AppContext>) {
     let ctx = ctx.clone();
     k.on_message(move |event| match event {
         tsck_kee::Event::Keys(k, _func) => {
-            log_error!(k);
             if let Some(fnc) = ntek.clone().hotkeys.get(k) {
                 match fnc {
                     AppFunc::Func(app_function) => {
@@ -153,8 +152,12 @@ impl AppFunction {
             AppFunction::TransformFloatingY(value) => {
                 ctx.lock().transform_y(*value)?;
             }
-            AppFunction::CloseApp => todo!(),
-            AppFunction::AdjustAppWidth(value) => todo!(),
+            AppFunction::CloseApp => {
+                crate::log_warn!("AppFunction::CloseApp");
+            }
+            AppFunction::AdjustAppWidth(value) => {
+                crate::log_warn!("AppFunction::AdjustAppWidth", value)
+            }
         }
         Ok(())
     }

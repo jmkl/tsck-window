@@ -25,10 +25,7 @@ use windows::{
     core::{BOOL, PWSTR},
 };
 
-use crate::{
-    h, log_error,
-    win::{animation, event::WindowsEvent},
-};
+use crate::{h, log_error, win::event::WindowsEvent};
 
 pub static WINEVENT_CHANNEL: OnceLock<(
     Sender<(WindowsEvent, WinApp)>,
@@ -682,7 +679,7 @@ impl WindowsAPI {
         unsafe { IsZoomed(HWND(hwnd as *mut c_void)).as_bool() }
     }
 
-    pub fn transform(hwnd: isize, from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
+    pub fn transform(hwnd: isize, _from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
         Self::transform_to(hwnd, to_rect)?;
         //animation::animate_window(hwnd, from, to_rect);
         Ok(())
