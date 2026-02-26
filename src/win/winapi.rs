@@ -773,7 +773,7 @@ impl WindowsAPI {
             Ok(result)
         }
     }
-    pub fn focus_app(app: &AppData) -> anyhow::Result<()> {
+    pub fn focus_app(hwnd: isize) -> anyhow::Result<()> {
         let event = [INPUT {
             r#type: INPUT_MOUSE,
             ..Default::default()
@@ -782,7 +782,7 @@ impl WindowsAPI {
         unsafe {
             SendInput(&event, size_of::<INPUT>() as i32);
             let _ = SetWindowPos(
-                h!(app.hwnd),
+                h!(hwnd),
                 None,
                 0,
                 0,
@@ -790,7 +790,7 @@ impl WindowsAPI {
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS,
             );
-            _ = SetForegroundWindow(h!(app.hwnd));
+            _ = SetForegroundWindow(h!(hwnd));
         }
         Ok(())
     }

@@ -189,7 +189,7 @@ impl WinManager {
                     E::SystemMinimizestart => {}
                     E::SystemForeground => {
                         if let Some(app) = win.get_app_info() {
-                            ctx.lock().on_focus_change(&app)?;
+                            ctx.lock().on_focus_change(app.hwnd)?;
                         }
                     }
                     E::SystemMinimizeend => {}
@@ -208,7 +208,7 @@ impl WinManager {
 
                     E::ObjectNamechange => {
                         if let Some(app) = win.get_app_info() {
-                            ctx.lock().widget_update_title(&app);
+                            ctx.lock().widget_update_title(app.hwnd);
                         }
                         // log_warn!("EventObjectNamechange ");
                     }

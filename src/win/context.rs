@@ -211,7 +211,7 @@ impl AppContext {
 impl AppContext {
     /// Fired while dragging the window
     pub fn on_location_change(&mut self, app: &AppData) -> anyhow::Result<()> {
-        let _ = self.update_border(app);
+        let _ = self.update_border(app.hwnd);
         let maximize = WindowsAPI::is_window_maximized(h!(app.hwnd))?;
         if maximize {
             self.maximize_app(app.hwnd)?;
@@ -235,10 +235,10 @@ impl AppContext {
     }
 
     /// Fired when app gains focus
-    pub fn on_focus_change(&mut self, app: &AppData) -> anyhow::Result<()> {
-        self.active_app = Some(app.hwnd);
-        self.widget_update_title(app);
-        self.update_border(app)?;
+    pub fn on_focus_change(&mut self, hwnd: isize) -> anyhow::Result<()> {
+        self.active_app = Some(hwnd);
+        self.widget_update_title(hwnd);
+        self.update_border(hwnd)?;
 
         Ok(())
     }
@@ -363,7 +363,7 @@ impl AppContext {
         overlay.set_top_most(binfos);
         Ok(())
     }
-    pub fn update_border(&self, app: &AppData) -> Result<()> {
+    pub fn update_border(&self, hwnd: isize) -> Result<()> {
         // self.update_topmost_border()?;
         let active = self.get_active_app()?;
         // if let Some(s) = self.store_appdata.get(&active) {
@@ -377,8 +377,11 @@ impl AppContext {
         //         return Ok(());
         //     }
         // }
-        let is_maximized = WindowsAPI::is_maximized(app.hwnd);
-        let (px, py) = WindowsAPI::get_rect_padding(app.hwnd);
+        let app = self.apps.iter().find(|a| a.hwnd == hwnd).ok_or(anyhow!(
+            "cant find app with the provide hwnd in update_border function"
+        ))?;
+        let is_maximized = WindowsAPI::is_maximized(hwnd);
+        let (px, py) = WindowsAPI::get_rect_padding(hwnd);
 
         let y = if is_maximized {
             app.rect.t + (py / 2)
@@ -419,7 +422,11 @@ impl AppContext {
         Ok(())
     }
 
-    pub fn widget_update_title(&mut self, app: &AppData) {
+    pub fn widget_update_title(&mut self, hwnd: isize) -> anyhow::Result<()> {
+        let app = self.apps.iter().find(|a| a.hwnd == hwnd).ok_or(anyhow!(
+            "cant find app with the provide hwnd in update_border function"
+        ))?;
+
         if let Some(active_app) = self.active_app {
             let title = crate::win::util::truncate(&app.title, 25);
             if active_app == app.hwnd {
@@ -437,6 +444,7 @@ impl AppContext {
                 );
             }
         }
+        Ok(())
     }
 }
 
@@ -867,31 +875,38 @@ impl AppContext {
         }
         .clamp(0, apps.len() - 1);
         let new_app = &apps[new_index];
-        WindowsAPI::focus_app(new_app)?;
-        self.on_focus_change(new_app)?;
-
-        let floating_apps = self
-            .store_appdata
-            .iter()
-            .flat_map(|(a, h)| if h.floating { Some(a) } else { None })
-            .collect::<Vec<_>>();
 
         let prev_counter = 2;
         let is_active_full = self
             .store_appdata
             .get(&active_app)
             .is_some_and(|f| f.ratio == 1.0);
-        log_error!("SIZE RATIO IS FULL", is_active_full);
 
-        if new_index == prev_counter && current_index < prev_counter {
-            self.move_app_to_last(apps[0].hwnd);
-            self.apply_layout_in_workspace();
+        let mut hwnd = apps[new_index].hwnd;
+
+        match (current_index, new_index) {
+            // Wrapping backward: at 0, press prev -> bring last index to 0
+            (0, 0) => {
+                hwnd = apps[apps.len() - 1].hwnd;
+                self.move_app_to_first(hwnd);
+            }
+
+            // Crossing threshold or moving from fullscreen index 0
+            (curr, new)
+                if (new == prev_counter && curr < prev_counter)
+                    || (curr == 0 && new != 0 && is_active_full)
+                    || (curr == 0 && new == prev_counter) =>
+            {
+                self.move_app_to_last(apps[0].hwnd);
+            }
+
+            // Normal focus change - do nothing
+            _ => {}
         }
 
-        if new_index == 0 && current_index == 0 {
-            self.move_app_to_first(apps[apps.len() - 1].hwnd);
-            self.apply_layout_in_workspace();
-        }
+        self.apply_layout_in_workspace();
+        WindowsAPI::focus_app(hwnd)?;
+        self.on_focus_change(hwnd)?;
 
         Ok(())
     }
