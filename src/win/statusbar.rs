@@ -22,11 +22,39 @@ use crate::{
 
 pub const WM_UPDATE_STATUSBAR: u32 = WM_USER + 1;
 
+// draw_multiline_text(
+//     &data.render_target,
+//     &data.dwrite_factory,
+//     &lines,
+//     10.0,              // x
+//     bar.height + 30.0, // y (below statusbar)
+//     300.0,             // width
+//     &StatusBarFont {
+//         family: "Helvetica Black".into(),
+//         size: 20.0,
+//     },
+//     col!(base_content), // text color
+//     col!(transparent),  // background color
+// )?;
+
+#[derive(Clone, Debug)]
+pub struct SlotMultiLine {
+    pub lines: Vec<String>,
+    pub padding: f32,
+    pub line_height: f32,
+    pub x: f32,
+    pub y: f32,
+    pub font: StatusBarFont,
+    pub fg: D2D1_COLOR_F,
+    pub bg: D2D1_COLOR_F,
+}
+
 #[derive(Clone, Debug)]
 pub struct SlotText {
     pub text: String,
     pub fg: D2D1_COLOR_F,
     pub bg: D2D1_COLOR_F,
+    pub font: StatusBarFont,
     pub font_weight: DWRITE_FONT_WEIGHT,
     pub font_style: DWRITE_FONT_STYLE,
 }
@@ -35,7 +63,8 @@ impl SlotText {
         Self {
             text: text.into(),
             fg: col!(base_content),
-            bg: col!(base_trans),
+            bg: col!(transparent),
+            font: StatusBarFont::default(),
             font_weight: DWRITE_FONT_WEIGHT_NORMAL,
             font_style: DWRITE_FONT_STYLE_NORMAL,
         }
@@ -60,6 +89,10 @@ impl SlotText {
         self.bg = bg;
         self
     }
+    pub fn set_font(mut self, family: String, size: f32) -> Self {
+        self.font = StatusBarFont { family, size };
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -71,8 +104,8 @@ pub struct StatusBarFont {
 impl Default for StatusBarFont {
     fn default() -> Self {
         Self {
-            family: "Segoe UI".into(),
-            size: 13.0,
+            family: "MartianMono NF".into(),
+            size: 10.0,
         }
     }
 }
@@ -89,6 +122,7 @@ pub struct StatusBar {
     pub left: Vec<SlotText>,
     pub center: Vec<SlotText>,
     pub right: Vec<SlotText>,
+    pub multiline: Vec<SlotMultiLine>,
     pub height: f32,
     pub padding: f32,
     pub always_show: Visibility,
@@ -101,6 +135,7 @@ impl Default for StatusBar {
             left: vec![],
             center: vec![],
             right: vec![],
+            multiline: vec![],
             height: 28.0,
             padding: 8.0,
             always_show: Visibility::Always,
@@ -117,7 +152,7 @@ struct StatusbarData {
     statusbar_format: Option<IDWriteTextFormat>,
     statusbar: Option<StatusBar>,
     is_active_monitor: bool,
-    rect: (i32, i32, i32, i32),
+    rect: (i32, i32, i32, i32, i32),
 }
 
 pub struct StatusbarWindow {
@@ -131,7 +166,7 @@ impl StatusbarWindow {
     pub fn new(monitor_info: &MonitorInfo) -> Result<Self> {
         let d2d_factory: ID2D1Factory =
             unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }?;
-        let class_name = w!("StatusbarWindowYoo");
+        let class_name = w!("Tsck-Statusbar");
         let hinstance = unsafe { GetModuleHandleW(None) }?;
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -166,6 +201,8 @@ impl StatusbarWindow {
 
         let monitor_rect = WindowsAPI::resolve_monitor_rect(hwnd, Some(monitor_info.index));
         let width = monitor_rect.right - monitor_rect.left;
+        let real_height = monitor_rect.bottom - monitor_rect.top;
+
         let height = get_statusbar_height(monitor_info.index);
         let x = monitor_rect.left;
         let y = monitor_rect.top;
@@ -176,7 +213,8 @@ impl StatusbarWindow {
                 x,
                 y,
                 width,
-                height as i32,
+                real_height,
+                // height as i32,
                 SWP_NOACTIVATE,
             )
         }?;
@@ -206,7 +244,7 @@ impl StatusbarWindow {
             hwnd,
             pixelSize: D2D_SIZE_U {
                 width: width as u32,
-                height: height as u32,
+                height: real_height as u32,
             },
             presentOptions: D2D1_PRESENT_OPTIONS_IMMEDIATELY,
         };
@@ -225,9 +263,8 @@ impl StatusbarWindow {
             statusbar: None,
             is_active_monitor: monitor_info.is_primary,
             dwrite_factory,
-            rect: (x, y, width, height as i32),
+            rect: (x, y, width, height as i32, real_height as i32),
         });
-        println!("SB DATA {:?}", &statusbar_data);
         unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(statusbar_data) as isize) };
         _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
         _ = unsafe { UpdateWindow(hwnd) };
@@ -345,6 +382,7 @@ impl StatusbarWindow {
         }
     }
 }
+
 unsafe fn draw_statusbar(
     data: &StatusbarData,
     bar: &StatusBar,
@@ -382,21 +420,151 @@ unsafe fn draw_statusbar(
         measure_text_width_layout(&data.dwrite_factory, fmt, &wide) + pad * 2.0 + 2.0
     };
     let y = 0.0;
-    draw_slots(data, &bar.left, 4.0, 0.0, h, pad, false, &bar.font);
+    draw_slots(data, &bar.left, 4.0, 0.0, h, pad, false);
 
     let center_total: f32 = bar.center.iter().map(|s| measure(s)).sum();
     let center_x = (screen_width - center_total) / 2.0;
-    draw_slots(data, &bar.center, center_x, y, h, pad, false, &bar.font);
-    draw_slots(
-        data,
-        &bar.right,
-        screen_width - 4.0,
-        y,
-        h,
-        pad,
-        true,
-        &bar.font,
-    );
+    draw_slots(data, &bar.center, center_x, y, h, pad, false);
+    draw_slots(data, &bar.right, screen_width - 4.0, y, h, pad, true);
+
+    if let Some(sb) = &data.statusbar {
+        for mline in &sb.multiline {
+            let text: Vec<u16> = mline
+                .lines
+                .iter()
+                .max_by_key(|s| s.len())
+                .unwrap_or(&"WTF".to_string())
+                .encode_utf16()
+                .collect();
+            let width = measure_text_width_layout(&data.dwrite_factory, fmt, &text)
+                + mline.padding * 2.0
+                + 2.0;
+            draw_multiline_text(
+                &data.render_target,
+                &data.dwrite_factory,
+                &mline.lines,
+                mline.padding,
+                mline.line_height,
+                mline.x,
+                mline.y + bar.height,
+                width,
+                &mline.font,
+                mline.fg,
+                mline.bg,
+            )?;
+        }
+    }
+    // draw_multiline_text(
+    //     &data.render_target,
+    //     &data.dwrite_factory,
+    //     &lines,
+    //     10.0,              // x
+    //     bar.height + 30.0, // y (below statusbar)
+    //     300.0,             // width
+    //     &StatusBarFont {
+    //         family: "Helvetica Black".into(),
+    //         size: 20.0,
+    //     },
+    //     col!(base_content), // text color
+    //     col!(transparent),  // background color
+    // )?;
+
+    Ok(())
+}
+
+fn draw_multiline_text(
+    render_target: &ID2D1HwndRenderTarget,
+    dwrite_factory: &IDWriteFactory,
+    lines: &[String],
+    padding: f32,
+    line_height: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    font: &StatusBarFont,
+    fg: D2D1_COLOR_F,
+    bg: D2D1_COLOR_F,
+) -> anyhow::Result<()> {
+    // Create text format
+    let font_wide: Vec<u16> = font
+        .family
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let fmt = unsafe {
+        dwrite_factory.CreateTextFormat(
+            PCWSTR(font_wide.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            font.size,
+            w!("en-us"),
+        )?
+    };
+
+    unsafe {
+        fmt.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING)?;
+        fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR)?;
+        fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+    }
+    // Measure total height
+    let mut total_height = 0.0f32;
+    for line in lines {
+        let wide: Vec<u16> = line.encode_utf16().collect();
+        let layout = unsafe { dwrite_factory.CreateTextLayout(&wide, &fmt, width, 1000.0)? };
+        let mut metrics = DWRITE_TEXT_METRICS::default();
+        unsafe { layout.GetMetrics(&mut metrics)? };
+        total_height += metrics.height * line_height;
+    }
+
+    // Draw background
+    if bg.a > 0.0 {
+        let bg_brush = unsafe { render_target.CreateSolidColorBrush(&bg, None)? };
+        let bg_rect = D2D1_ROUNDED_RECT {
+            rect: D2D_RECT_F {
+                left: x,
+                top: y,
+                right: x + width,
+                bottom: y + total_height + padding,
+            },
+            radiusX: 4.0,
+            radiusY: 4.0,
+        };
+        unsafe { render_target.FillRoundedRectangle(&bg_rect, &bg_brush) };
+    }
+
+    // Draw text lines
+    let text_brush = unsafe { render_target.CreateSolidColorBrush(&fg, None)? };
+    let mut current_y = y + padding / 2.0;
+
+    for line in lines {
+        let wide: Vec<u16> = line.encode_utf16().collect();
+        let layout = unsafe { dwrite_factory.CreateTextLayout(&wide, &fmt, width, 1000.0)? };
+        let mut metrics = DWRITE_TEXT_METRICS::default();
+        unsafe { layout.GetMetrics(&mut metrics)? };
+
+        let text_rect = D2D_RECT_F {
+            left: padding / 2.0 + x,
+            top: current_y,
+            right: padding / 2.0 + x + width,
+            bottom: current_y + (metrics.height * line_height),
+        };
+
+        unsafe {
+            render_target.DrawText(
+                &wide,
+                &fmt,
+                &text_rect,
+                &text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+                DWRITE_MEASURING_MODE_NATURAL,
+            )
+        };
+
+        current_y += metrics.height * line_height;
+    }
 
     Ok(())
 }
@@ -409,7 +577,6 @@ fn draw_slots(
     height: f32,
     padding: f32,
     right_align: bool,
-    base_font: &StatusBarFont, // add this
 ) {
     let gap = 2.0;
 
@@ -417,7 +584,7 @@ fn draw_slots(
     let slot_widths: Vec<f32> = slots
         .iter()
         .map(|slot| {
-            let fmt = make_text_format(&data.dwrite_factory, slot, base_font).unwrap();
+            let fmt = make_text_format(&data.dwrite_factory, slot).unwrap();
             let wide: Vec<u16> = slot.text.encode_utf16().collect();
             measure_text_width_layout(&data.dwrite_factory, &fmt, &wide) + padding * 1.0
         })
@@ -432,7 +599,7 @@ fn draw_slots(
     };
 
     for (slot, &sw) in slots.iter().zip(slot_widths.iter()) {
-        let fmt = make_text_format(&data.dwrite_factory, slot, base_font);
+        let fmt = make_text_format(&data.dwrite_factory, slot);
         let wide: Vec<u16> = slot.text.encode_utf16().collect();
         let padding_y = 6.0;
 
@@ -476,17 +643,14 @@ fn draw_slots(
         x += sw + gap;
     }
 }
-fn make_text_format(
-    factory: &IDWriteFactory,
-    slot: &SlotText,
-    base: &StatusBarFont,
-) -> Option<IDWriteTextFormat> {
-    let font_wide: Vec<u16> = base
+fn make_text_format(factory: &IDWriteFactory, slot: &SlotText) -> Option<IDWriteTextFormat> {
+    let font_wide: Vec<u16> = slot
+        .font
         .family
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
-    let size = base.size;
+    let size = slot.font.size;
 
     let fmt = unsafe {
         factory

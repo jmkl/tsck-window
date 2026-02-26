@@ -115,5 +115,6 @@ win_event_builder! { WindowsEvent,
   (19968, "EVENT_UIA_EVENTID_START", UiaEventidStart),
   (30207, "EVENT_UIA_PROPID_END", UiaPropidEnd),
   (29952, "EVENT_UIA_PROPID_START", UiaPropidStart),
-  (99999, "EVENT_DONE", Done),
+  (66991, "EVENT_DONE", Done),
+  (66990, "EVENT_INIT", Init),
 }

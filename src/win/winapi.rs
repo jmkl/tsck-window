@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use ntek_derive::{NtekDes, NtekSer};
 use std::{
     ffi::{OsString, c_void},
     os::windows::ffi::OsStringExt,
@@ -24,10 +25,7 @@ use windows::{
     core::{BOOL, PWSTR},
 };
 
-use crate::{
-    h, log_error,
-    win::{animation, event::WindowsEvent},
-};
+use crate::{h, log_error, win::event::WindowsEvent};
 
 pub static WINEVENT_CHANNEL: OnceLock<(
     Sender<(WindowsEvent, WinApp)>,
@@ -57,7 +55,7 @@ pub fn channel_send(event: WindowsEvent, win_app: WinApp) {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, NtekSer, NtekDes)]
 pub struct AppData {
     pub hwnd: isize,
     pub name: String,
@@ -66,7 +64,7 @@ pub struct AppData {
     pub rect: AppRect,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, NtekSer, NtekDes)]
 pub struct AppRect {
     pub l: i32,
     pub t: i32,
@@ -411,6 +409,22 @@ impl WindowsAPI {
         });
         Ok(())
     }
+    pub fn get_window_z_order(hwnd: isize) -> anyhow::Result<i32> {
+        unsafe {
+            let mut z_order = 0;
+            let mut current_hwnd = GetTopWindow(Some(h!(0)))?;
+
+            while !current_hwnd.is_invalid() {
+                if current_hwnd == h!(hwnd) {
+                    return Ok(z_order);
+                }
+                z_order += 1;
+                current_hwnd = GetWindow(current_hwnd, GW_HWNDNEXT)?;
+            }
+
+            Ok(i32::MAX)
+        }
+    }
 
     pub fn top_visible_window(blacklist: &Vec<String>) -> anyhow::Result<HWND> {
         let hwnd = unsafe { GetTopWindow(None)? };
@@ -463,7 +477,7 @@ impl WindowsAPI {
         }
     }
     pub fn top_window(blacklist: &Vec<String>) -> Option<HWND> {
-        let class_b = &["SystemTray_Main", "Shell_TrayWnd", "StatusbarWindowYoo"];
+        let class_b = &["SystemTray_Main", "Shell_TrayWnd", "Tsck-Statusbar"];
         unsafe {
             let mut hwnd = GetTopWindow(Some(HWND(0 as *mut c_void))).ok()?;
             while !hwnd.is_invalid() {
@@ -509,6 +523,7 @@ impl WindowsAPI {
             if let Err(err) = unsafe { EnumWindows(Some(Self::get_active_app_list), LPARAM(0)) } {
                 eprintln!("Error Listing {err}")
             }
+            channel_send(WindowsEvent::Done, WinApp::from(h!(0)));
 
             unsafe {
                 SetWinEventHook(
@@ -584,7 +599,7 @@ impl WindowsAPI {
         if let Some(app) = app_window.get_app_info() {
             log_error!(app.name, app.title);
         };
-        channel_send(WindowsEvent::ObjectCreate, app_window);
+        channel_send(WindowsEvent::Init, app_window);
         TRUE
     }
 
@@ -664,10 +679,16 @@ impl WindowsAPI {
         unsafe { IsZoomed(HWND(hwnd as *mut c_void)).as_bool() }
     }
 
-    pub fn transform(hwnd: isize, from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
-        animation::animate_window(hwnd, from, to_rect);
-        // Self::transform_impl(hwnd, rect)?;
+    pub fn transform(hwnd: isize, _from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
+        Self::transform_to(hwnd, to_rect)?;
+        //animation::animate_window(hwnd, from, to_rect);
         Ok(())
+    }
+    pub fn to_bottom_order(hwnd: isize) {
+        let hwnd = h!(hwnd);
+        unsafe {
+            _ = SetWindowPos(hwnd, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+        };
     }
 
     pub fn transform_to(hwnd: isize, rect: &AppRect) -> anyhow::Result<()> {
@@ -675,6 +696,7 @@ impl WindowsAPI {
         Self::disable_rounded_corner(hwnd);
         _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
         unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
+
         Ok(())
     }
 
@@ -748,7 +770,7 @@ impl WindowsAPI {
             Ok(result)
         }
     }
-    pub fn focus_app(app: &AppData) -> anyhow::Result<()> {
+    pub fn focus_app(hwnd: isize) -> anyhow::Result<()> {
         let event = [INPUT {
             r#type: INPUT_MOUSE,
             ..Default::default()
@@ -757,7 +779,7 @@ impl WindowsAPI {
         unsafe {
             SendInput(&event, size_of::<INPUT>() as i32);
             let _ = SetWindowPos(
-                h!(app.hwnd),
+                h!(hwnd),
                 None,
                 0,
                 0,
@@ -765,7 +787,7 @@ impl WindowsAPI {
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS,
             );
-            _ = SetForegroundWindow(h!(app.hwnd));
+            _ = SetForegroundWindow(h!(hwnd));
         }
         Ok(())
     }

@@ -8,7 +8,9 @@ use windows::Win32::{
 use crate::{
     col,
     win::{
-        statusbar::{SlotText, StatusBar, StatusBarFont, Visibility, WM_UPDATE_STATUSBAR},
+        statusbar::{
+            SlotMultiLine, SlotText, StatusBar, StatusBarFont, Visibility, WM_UPDATE_STATUSBAR,
+        },
         winapi::STATUSBAR_HEIGHT,
     },
 };
@@ -65,6 +67,7 @@ pub struct WidgetSlots {
     pub left: BTreeMap<String, Vec<SlotText>>,
     pub center: BTreeMap<String, Vec<SlotText>>,
     pub right: BTreeMap<String, Vec<SlotText>>,
+    pub multiline: BTreeMap<String, Vec<SlotMultiLine>>,
     pub workspace_indicator: WsIndicatorPos,
     pub hwnd: Option<isize>,
     pub workspaces: Vec<Workspace>,
@@ -77,6 +80,7 @@ impl Default for WidgetSlots {
             left: BTreeMap::new(),
             center: BTreeMap::new(),
             right: BTreeMap::new(),
+            multiline: BTreeMap::new(),
             workspace_indicator: WsIndicatorPos::Center,
             hwnd: None,
             workspaces: vec![],
@@ -115,6 +119,11 @@ impl WidgetSlots {
 
         self.refresh_statusbar();
     }
+    pub fn set_multiline(&mut self, key: &str, slot: Vec<SlotMultiLine>) {
+        self.multiline.insert(key.into(), slot);
+        self.refresh_statusbar();
+    }
+
     fn update_statusbar(&self, target_hwnd: isize, statusbar: StatusBar) -> anyhow::Result<()> {
         let hwnd = HWND(target_hwnd as *mut std::ffi::c_void);
         unsafe {
@@ -127,6 +136,7 @@ impl WidgetSlots {
         }
         Ok(())
     }
+
     fn get_workspace_indicator(
         &self,
         workspaces: &Vec<Workspace>,
@@ -169,6 +179,7 @@ impl WidgetSlots {
         let mut left = self.left.values().flatten().cloned().collect();
         let mut center = self.center.values().flatten().cloned().collect();
         let mut right = self.right.values().flatten().cloned().collect();
+        let multiline = self.multiline.values().flatten().cloned().collect();
         match self.workspace_indicator {
             WsIndicatorPos::Left => {
                 let mut m = ws;
@@ -191,6 +202,7 @@ impl WidgetSlots {
             left,
             center,
             right,
+            multiline,
             height: STATUSBAR_HEIGHT,
             padding: 10.0,
             always_show: Visibility::OnFocus,

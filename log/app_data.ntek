@@ -1,0 +1,128 @@
+[
+  {
+  hwnd : 333542,
+  name : "Zed",
+  title : "ntek-lang, kee.kee, tsck-window — context.rs",
+  class : "Zed::Window",
+  rect : {
+    l : -7,
+    t : 30,
+    r : 2567,
+    b : 1443,
+    width : 2574,
+    height : 1413
+  }
+},
+  {
+  hwnd : 198366,
+  name : "wezterm-gui",
+  title : "[2/3] E:\_CODE\rust\tsck-winit-workspace\crates\tsck-window> cr",
+  class : "org.wezfurlong.wezterm",
+  rect : {
+    l : -7,
+    t : 30,
+    r : 7,
+    b : 1443,
+    width : 14,
+    height : 1413
+  }
+},
+  {
+  hwnd : 131360,
+  name : "Photoshop",
+  title : "148873.psd @ 50.5% (RGB/8)",
+  class : "Photoshop",
+  rect : {
+    l : -2560,
+    t : 30,
+    r : 1,
+    b : 1440,
+    width : 2561,
+    height : 1410
+  }
+},
+  {
+  hwnd : 399976,
+  name : "FPilot",
+  title : "Downloads (jmkl\Downloads) - File Pilot v0.6.8",
+  class : "File Pilot",
+  rect : {
+    l : -3840,
+    t : 30,
+    r : -2546,
+    b : 1443,
+    width : 1294,
+    height : 1413
+  }
+},
+  {
+  hwnd : 399686,
+  name : "zen",
+  title : "Dynamic window layout with proportional width allocation - Claude — Zen Browser",
+  class : "MozillaWindowClass",
+  rect : {
+    l : -5120,
+    t : 30,
+    r : -3826,
+    b : 1443,
+    width : 1294,
+    height : 1413
+  }
+},
+  {
+  hwnd : 69302,
+  name : "chrome",
+  title : "After Life - The CRAZIEST Tambury Gazette Stories | Netflix - YouTube - Chromium",
+  class : "Chrome_WidgetWin_1",
+  rect : {
+    l : 2553,
+    t : 0,
+    r : 4487,
+    b : 1083,
+    width : 1934,
+    height : 1083
+  }
+},
+  {
+  hwnd : 399152,
+  name : "FPilot-v0.6.8",
+  title : "Downloads (jmkl\Downloads) - File Pilot v0.6.8",
+  class : "File Pilot",
+  rect : {
+    l : -6400,
+    t : 30,
+    r : -5106,
+    b : 1443,
+    width : 1294,
+    height : 1413
+  }
+},
+  {
+  hwnd : 530784,
+  name : "zen",
+  title : "Zen Browser",
+  class : "MozillaWindowClass",
+  rect : {
+    l : -7680,
+    t : 30,
+    r : -6386,
+    b : 1443,
+    width : 1294,
+    height : 1413
+  }
+},
+  {
+  hwnd : 661900,
+  name : "Notepad",
+  title : "Untitled - Notepad",
+  class : "Notepad",
+  rect : {
+    l : -8320,
+    t : 30,
+    r : -7670,
+    b : 1442,
+    width : 650,
+    height : 1412
+  }
+}
+]
