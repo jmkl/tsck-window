@@ -1,0 +1,114 @@
+[
+  {
+  hwnd : 333542,
+  name : "Zed",
+  title : "ntek-lang, kee.kee, tsck-window — win.ntek",
+  class : "Zed::Window",
+  rect : {
+    l : 633,
+    t : 30,
+    r : 2567,
+    b : 1443,
+    width : 1934,
+    height : 1413
+  }
+},
+  {
+  hwnd : 198366,
+  name : "wezterm-gui",
+  title : "[2/2] E:\_CODE\rust\tsck-winit-workspace\crates\tsck-window> cr",
+  class : "org.wezfurlong.wezterm",
+  rect : {
+    l : -7,
+    t : 30,
+    r : 647,
+    b : 1443,
+    width : 654,
+    height : 1413
+  }
+},
+  {
+  hwnd : 399152,
+  name : "FPilot-v0.6.8",
+  title : "Downloads (jmkl\Downloads) - File Pilot v0.6.8",
+  class : "File Pilot",
+  rect : {
+    l : -1927,
+    t : 30,
+    r : 7,
+    b : 1443,
+    width : 1934,
+    height : 1413
+  }
+},
+  {
+  hwnd : 399686,
+  name : "zen",
+  title : "Dynamic window layout with proportional width allocation - Claude — Zen Browser",
+  class : "MozillaWindowClass",
+  rect : {
+    l : -3207,
+    t : 30,
+    r : -1913,
+    b : 1443,
+    width : 1294,
+    height : 1413
+  }
+},
+  {
+  hwnd : 661900,
+  name : "Notepad",
+  title : "Untitled - Notepad",
+  class : "Notepad",
+  rect : {
+    l : -4485,
+    t : 30,
+    r : -3195,
+    b : 1442,
+    width : 1290,
+    height : 1412
+  }
+},
+  {
+  hwnd : 131360,
+  name : "Photoshop",
+  title : "148870.psd @ 75.1% (RGB/8)",
+  class : "Photoshop",
+  rect : {
+    l : -5760,
+    t : 30,
+    r : -4479,
+    b : 1440,
+    width : 1281,
+    height : 1410
+  }
+},
+  {
+  hwnd : 530784,
+  name : "zen",
+  title : "Zen Browser",
+  class : "MozillaWindowClass",
+  rect : {
+    l : -7687,
+    t : 30,
+    r : -5753,
+    b : 1443,
+    width : 1934,
+    height : 1413
+  }
+},
+  {
+  hwnd : 69302,
+  name : "chrome",
+  title : "YouTube - Chromium",
+  class : "Chrome_WidgetWin_1",
+  rect : {
+    l : 2553,
+    t : 0,
+    r : 4487,
+    b : 1083,
+    width : 1934,
+    height : 1083
+  }
+}
+]

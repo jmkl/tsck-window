@@ -1,12 +1,13 @@
+use crate::log_error;
 use crate::win::border::BorderOverlay;
 use crate::win::config::{WinNtek, spawn_commandline, spawn_hotkee};
 use crate::win::event::WindowsEvent as E;
 use crate::win::statusbar::StatusbarWindow;
 use crate::win::widget::Workspace;
 use crate::win::winapi::{self, WindowsAPI};
-use crate::{log_error, log_warn};
 use ntek;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::win::context::{AppContext, Shared};
 use anyhow::Result;
@@ -41,7 +42,7 @@ impl WinManager {
             })
             .collect();
         Self::spawn_border_service(ctx.border_overlay.clone());
-        Self::spawn_topmost_border_service(ctx.top_most_overlay.clone());
+        // Self::spawn_topmost_border_service(ctx.top_most_overlay.clone());
 
         ctx.spawn_widget();
 
@@ -49,9 +50,15 @@ impl WinManager {
         Self::spawn_event_listener_service(context.clone());
         spawn_hotkee(ntek, context.clone());
         spawn_commandline(context.clone());
+
         Self { _context: context }
     }
     pub fn event_loop(&self) {
+        let ctx = self._context.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            ctx.lock().initialized = true;
+        });
         loop {
             std::thread::park();
         }
@@ -143,30 +150,28 @@ impl WinManager {
                     }
                 }
                 match ev {
+                    E::Init => {
+                        ctx.lock().add_app(true, &win)?;
+                    }
+                    E::Done => {
+                        ctx.lock().initialized();
+                        // ctx.lock().apply_layout_in_workspace(false);
+                    }
                     /*
                     This fire initialy when we start the app
                     it will list currently active app
                     */
                     E::ObjectCreate => {
-                        // log_warn!("EventObjectCreate ");
-                        ctx.lock().add_app(&win)?;
+                        ctx.lock().add_app(false, &win)?;
                     }
                     E::ObjectLocationchange => {
                         if let Some(app) = win.get_app_info() {
                             ctx.lock().on_location_change(&app)?;
                         }
                     }
-                    E::SystemCapturestart => {
-                        log_warn!("EventSystemCapturestart ");
-                    }
-                    E::SystemCaptureend => {
-                        log_warn!("SystemCaptureEnd");
-
-                        // ctx.lock().update_app(&win, ev)?;
-                    }
-                    E::SystemMovesizestart => {
-                        log_warn!("EventSystemMovesizestart ");
-                    }
+                    E::SystemCapturestart => {}
+                    E::SystemCaptureend => {}
+                    E::SystemMovesizestart => {}
 
                     /*
                     this event fired when done moving/resizing
@@ -180,24 +185,15 @@ impl WinManager {
                             ctx.lock().on_move_size_end(&app);
                         }
                     }
-                    E::ObjectReorder => {
-                        log_warn!("EventObjectReorder ");
-                    }
-                    E::SystemMinimizestart => {
-                        log_warn!("EventSystemMinimizeStart ");
-                    }
+                    E::ObjectReorder => {}
+                    E::SystemMinimizestart => {}
                     E::SystemForeground => {
-                        log_warn!("EventSystemForeground ");
                         if let Some(app) = win.get_app_info() {
                             ctx.lock().on_focus_change(&app)?;
                         }
                     }
-                    E::SystemMinimizeend => {
-                        log_warn!("SystemMinimizeEnd");
-                        // ctx.lock().update_app(&win, ev)?;
-                    }
+                    E::SystemMinimizeend => {}
                     E::ObjectDestroy => {
-                        log_warn!("EventObjectDestroy ");
                         if let Some(app) = win.get_app_info() {
                             ctx.lock().remove_app(app.hwnd)?;
                         }
@@ -207,8 +203,9 @@ impl WinManager {
 
                     */
                     E::ObjectShow => {
-                        ctx.lock().add_app(&win)?;
+                        ctx.lock().add_app(false, &win)?;
                     }
+
                     E::ObjectNamechange => {
                         if let Some(app) = win.get_app_info() {
                             ctx.lock().widget_update_title(&app);
