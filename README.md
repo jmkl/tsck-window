@@ -8,7 +8,7 @@ the code mostly wrote by LLM. so...
 - [x] add/close window should reorder layout
 - [x] cycle size ratio should respect is the app on the screen or not
 - [ ] add function to increase and decrease window width by pixel in no floating mode
-- [ ] add function to move cursor into another monitor
+- [x] add function to move cursor into another monitor
 - [ ] implement move app to another monitor
 - [ ] better window re-arrange handling
 - [ ] make widget setup can be order tru config

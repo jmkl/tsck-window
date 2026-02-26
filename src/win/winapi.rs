@@ -25,10 +25,7 @@ use windows::{
     core::{BOOL, PWSTR},
 };
 
-use crate::{
-    h, log_error,
-    win::{animation, event::WindowsEvent},
-};
+use crate::{h, log_debug, log_error, win::event::WindowsEvent};
 
 pub static WINEVENT_CHANNEL: OnceLock<(
     Sender<(WindowsEvent, WinApp)>,
@@ -682,9 +679,10 @@ impl WindowsAPI {
         unsafe { IsZoomed(HWND(hwnd as *mut c_void)).as_bool() }
     }
 
-    pub fn transform(hwnd: isize, from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
+    pub fn transform(hwnd: isize, _from: &AppRect, to_rect: &AppRect) -> anyhow::Result<()> {
+        // log_debug!("Transforming", hwnd);
         Self::transform_to(hwnd, to_rect)?;
-        //animation::animate_window(hwnd, from, to_rect);
+        // crate::win::animation::animate_window(hwnd, from, to_rect);
         Ok(())
     }
     pub fn to_bottom_order(hwnd: isize) {
@@ -909,7 +907,7 @@ impl WindowsAPI {
 
         unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) }
     }
-    fn _set_cursor_pos(x: i32, y: i32) -> anyhow::Result<()> {
+    pub fn set_cursor_pos(x: i32, y: i32) -> anyhow::Result<()> {
         unsafe { Ok(SetCursorPos(x, y)?) }
     }
 }
