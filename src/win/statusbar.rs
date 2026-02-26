@@ -563,7 +563,7 @@ fn draw_multiline_text(
             )
         };
 
-        current_y += (metrics.height * line_height);
+        current_y += metrics.height * line_height;
     }
 
     Ok(())

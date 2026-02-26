@@ -257,12 +257,13 @@ pub fn map_value(start: &AppRect, end: &AppRect, eased_t: f64) -> AppRect {
 }
 
 pub fn animate_window(hwnd: isize, rect: &AppRect, to_rect: &AppRect) {
-    let easing = AnimationEasing::CubicBezier(CubicBezier::bounce());
+    // let easing = AnimationEasing::CubicBezier(CubicBezier::bounce());
+    let easing = AnimationEasing::EaseOutQuad;
     let rect = rect.clone();
     let to_rect = to_rect.clone();
     std::thread::spawn(move || {
         let hwnd_raw = crate::h!(hwnd);
-        let duration = Duration::from_millis(150);
+        let duration = Duration::from_millis(500);
         let start_time = Instant::now();
 
         loop {

@@ -91,29 +91,7 @@ impl WinManager {
             }
         });
     }
-    fn spawn_topmost_border_service(border_overlay: Arc<Mutex<Option<BorderOverlay>>>) {
-        std::thread::spawn(move || {
-            unsafe {
-                let mut msg = MSG::default();
-                _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
-            }
 
-            match BorderOverlay::new("Topmost-Overlay") {
-                Ok(overlay) => {
-                    *border_overlay.lock() = Some(overlay);
-                }
-                Err(e) => eprintln!("BorderOverlay error: {e}"),
-            }
-
-            unsafe {
-                let mut msg = MSG::default();
-                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
-        });
-    }
     fn spawn_border_service(border_overlay: Arc<Mutex<Option<BorderOverlay>>>) {
         std::thread::spawn(move || {
             unsafe {
@@ -208,9 +186,8 @@ impl WinManager {
 
                     E::ObjectNamechange => {
                         if let Some(app) = win.get_app_info() {
-                            ctx.lock().widget_update_title(app.hwnd);
+                            ctx.lock().widget_update_title(app.hwnd)?;
                         }
-                        // log_warn!("EventObjectNamechange ");
                     }
                     _ => {}
                 }
