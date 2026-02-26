@@ -108,9 +108,9 @@ impl AppRect {
         Self {
             l: r.l,
             t: r.t,
-            r: r.r + width,
-            b: r.b + r.height,
-            width: width,
+            r: r.r + inc,
+            b: r.b,
+            width: inc + r.width,
             height: r.height,
         }
     }
