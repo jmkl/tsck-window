@@ -401,7 +401,7 @@ impl AppContext {
                 if sd.floating {
                     WindowsAPI::set_top_most_after(overlay.hwnd(), h!(hwnd));
                 } else {
-                    WindowsAPI::to_bottom_order(hwnd);
+                    WindowsAPI::set_top_most_after(h!(hwnd), overlay.hwnd());
                 }
             }
         }
@@ -507,15 +507,15 @@ impl AppContext {
                         SlotGrid::Right,
                         "tray",
                         vec![
-                            SlotText::new(" ").fg(fg).bg(bg),
+                            SlotText::new("").fg(bg),
                             SlotText::new(format!(
                                 "↓{} ↑{}",
                                 format_speed(usage.net_download),
                                 format_speed(usage.net_upload)
                             )),
-                            SlotText::new("").fg(fg).bg(bg),
+                            SlotText::new("").fg(bg),
                             SlotText::new(format!("{:.1}%", usage.cpu_percent)),
-                            SlotText::new("").fg(fg).bg(bg),
+                            SlotText::new("").fg(bg),
                             SlotText::new(format!(
                                 "{:.1}/{:.1} GB",
                                 usage.ram_used_gb, usage.ram_total_gb
@@ -948,6 +948,21 @@ impl AppContext {
 // =============================================================================
 
 impl AppContext {
+    pub fn switch_monitor(&mut self) -> Result<()> {
+        let active_monitor = self.get_active_monitor();
+        let target_monitor = if active_monitor == 0 { 1 } else { 0 };
+        let monitor = &self.monitors[target_monitor];
+        let (x, y) = (monitor.left + (monitor.width / 2), monitor.height / 2);
+        let app_hwnd = self
+            .get_workspace_apps()
+            .get(0)
+            .ok_or(anyhow!("Cant find app in workspace"))?
+            .hwnd;
+        log_error!(x, y);
+        WindowsAPI::set_cursor_pos(x, y)?;
+        self.on_focus_change(app_hwnd)?;
+        Ok(())
+    }
     pub fn is_rtl(&self) -> bool {
         let active_monitor = self.get_active_monitor();
         active_monitor == 0
@@ -989,9 +1004,12 @@ impl AppContext {
             }
 
             let (px, py) = WindowsAPI::get_rect_padding(app.hwnd);
-            let w = app.rect.width;
+            let (w, visible_w) = if apps.len() == 1 {
+                (monitor.width, monitor.width - px)
+            } else {
+                (app.rect.width, app.rect.width - px)
+            };
             let h = monitor.height + (py / 2) - toolbar_height;
-            let visible_w = app.rect.width - px; // Width without padding
 
             let target_rect = if self.is_rtl() {
                 cursor_x -= visible_w;

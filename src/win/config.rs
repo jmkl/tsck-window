@@ -20,6 +20,7 @@ pub enum AppFunction {
     Debug,
     CycleSizeFactor,
     ToggleFloating,
+    SwitchMonitor,
     CloseApp,
 
     CycleWorkspace(Direction),
@@ -157,6 +158,10 @@ impl AppFunction {
             }
             AppFunction::AdjustAppWidth(value) => {
                 crate::log_warn!("AppFunction::AdjustAppWidth", value)
+            }
+            AppFunction::SwitchMonitor => {
+                ctx.lock().switch_monitor()?;
+                crate::log_warn!("AppFunction::AdjustAppWidth")
             }
         }
         Ok(())
