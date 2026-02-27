@@ -16,28 +16,36 @@ pub enum Direction {
 }
 
 #[derive(Debug, NtekDes, NtekSer)]
+pub enum FloatingFunction {
+    ResizeFloatingW(i32),
+    ResizeFloatingH(i32),
+    TransformFloatingX(i32),
+    TransformFloatingY(i32),
+    CycleFloatingApp(Direction),
+    SwapFocus,
+    Null,
+}
+
+#[derive(Debug, NtekDes, NtekSer)]
 pub enum AppFunction {
+    Null,
     Debug,
     CycleSizeFactor,
     ToggleFloating,
     SwitchMonitor,
     CloseApp,
-
+    SwapFocus,
     CycleWorkspace(Direction),
     MoveApp(Direction),
-    FocusApp(Direction),
-    CycleApp(Direction),
+    CycleFocusApp(Direction),
     MoveAppToWorkspace(Direction),
-    ResizeFloatingW(i32),
-    ResizeFloatingH(i32),
     AdjustAppWidth(i32),
-    TransformFloatingX(i32),
-    TransformFloatingY(i32),
 }
 
 #[derive(Debug, NtekDes, NtekSer)]
 pub enum AppFunc {
     Func(AppFunction),
+    Hybrid(AppFunction, FloatingFunction),
 }
 
 #[derive(Debug, NtekDes, NtekSer)]
@@ -104,6 +112,26 @@ pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<AppContext>) {
                             );
                         }
                     }
+                    AppFunc::Hybrid(app_function, floating_state) => {
+                        let is_floating = ctx.lock().is_floating_mode();
+                        if is_floating {
+                            if let Err(err) = floating_state.pipe(ctx.clone(), ntek.clone()) {
+                                log_error!(
+                                    "Error while executing AppFunc::Func",
+                                    dp!(app_function),
+                                    err
+                                );
+                            }
+                        } else {
+                            if let Err(err) = app_function.pipe(ctx.clone(), ntek.clone()) {
+                                log_error!(
+                                    "Error while executing AppFunc::Func",
+                                    dp!(app_function),
+                                    err
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -113,6 +141,32 @@ pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<AppContext>) {
         }
     })
     .run(kees);
+}
+impl FloatingFunction {
+    pub fn pipe(&self, ctx: Shared<AppContext>, _: Arc<WinNtek>) -> anyhow::Result<()> {
+        match self {
+            FloatingFunction::ResizeFloatingW(value) => {
+                ctx.lock().resize_width(*value)?;
+            }
+            FloatingFunction::ResizeFloatingH(value) => {
+                ctx.lock().resize_height(*value)?;
+            }
+            FloatingFunction::TransformFloatingX(value) => {
+                ctx.lock().transform_x(*value)?;
+            }
+            FloatingFunction::TransformFloatingY(value) => {
+                ctx.lock().transform_y(*value)?;
+            }
+            FloatingFunction::CycleFloatingApp(direction) => {
+                ctx.lock().cycle_floating_app(direction)?;
+            }
+            FloatingFunction::Null => {}
+            FloatingFunction::SwapFocus => {
+                ctx.lock().swap_focus()?;
+            }
+        }
+        Ok(())
+    }
 }
 impl AppFunction {
     pub fn pipe(&self, ctx: Shared<AppContext>, _: Arc<WinNtek>) -> anyhow::Result<()> {
@@ -126,32 +180,18 @@ impl AppFunction {
             AppFunction::CycleWorkspace(direction) => {
                 ctx.lock().cycle_workspace(direction);
             }
-            AppFunction::CycleApp(direction) => {
-                ctx.lock().cycle_app(direction);
-            }
+
             AppFunction::MoveAppToWorkspace(direction) => {
                 ctx.lock().move_app_to_workspace(direction);
             }
             AppFunction::MoveApp(direction) => {
                 ctx.lock().move_app(direction)?;
             }
-            AppFunction::FocusApp(direction) => {
-                ctx.lock().focus_app(direction)?;
+            AppFunction::CycleFocusApp(direction) => {
+                ctx.lock().cycle_focus_app(direction)?;
             }
             AppFunction::ToggleFloating => {
                 ctx.lock().toggle_floating()?;
-            }
-            AppFunction::ResizeFloatingW(value) => {
-                ctx.lock().resize_width(*value)?;
-            }
-            AppFunction::ResizeFloatingH(value) => {
-                ctx.lock().resize_height(*value)?;
-            }
-            AppFunction::TransformFloatingX(value) => {
-                ctx.lock().transform_x(*value)?;
-            }
-            AppFunction::TransformFloatingY(value) => {
-                ctx.lock().transform_y(*value)?;
             }
             AppFunction::CloseApp => {
                 crate::log_warn!("AppFunction::CloseApp");
@@ -162,6 +202,11 @@ impl AppFunction {
             AppFunction::SwitchMonitor => {
                 ctx.lock().switch_monitor()?;
                 crate::log_warn!("AppFunction::AdjustAppWidth")
+            }
+            AppFunction::Null => {}
+
+            AppFunction::SwapFocus => {
+                ctx.lock().swap_focus()?;
             }
         }
         Ok(())

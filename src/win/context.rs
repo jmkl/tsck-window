@@ -97,6 +97,19 @@ impl AppContext {
         }
         self.apply_layout_in_workspace();
     }
+    pub fn is_floating_mode(&self) -> bool {
+        let floating_apps = self
+            .store_appdata
+            .iter()
+            .filter_map(
+                |(hwnd, data)| {
+                    if data.floating { Some(*hwnd) } else { None }
+                },
+            )
+            .collect::<Vec<_>>();
+
+        self.active_app.is_some_and(|f| floating_apps.contains(&f))
+    }
 }
 
 // =============================================================================
@@ -201,18 +214,17 @@ impl AppContext {
 // =============================================================================
 
 impl AppContext {
-    /// Fired while dragging the window
+    // Fired while dragging the window
     pub fn on_location_change(&mut self, app: &AppData) -> anyhow::Result<()> {
-        let _ = self.update_border(app.hwnd);
         let maximize = WindowsAPI::is_window_maximized(h!(app.hwnd))?;
         if maximize {
             self.maximize_app(app.hwnd)?;
         }
-
+        let _ = self.update_border(app.hwnd);
         Ok(())
     }
 
-    /// Fired when done resizing/repositioning the window
+    // Fired when done resizing/repositioning the window
     pub fn on_move_size_end(&mut self, app: &AppData) {
         if let Some(monitor) = WindowsAPI::get_app_monitor(h!(app.hwnd), &self.monitors) {
             if let Some(stored_app) = self.apps.iter_mut().find(|a| a.hwnd == app.hwnd) {
@@ -223,15 +235,33 @@ impl AppContext {
             }
         }
         self.apply_layout_in_workspace();
-        // self.arrange_app_after_resize_or_move(app.hwnd);
+        self.sync_widget_and_border("move size end");
     }
 
     /// Fired when app gains focus
-    pub fn on_focus_change(&mut self, hwnd: isize) -> anyhow::Result<()> {
-        self.active_app = Some(hwnd);
-        self.widget_update_title(hwnd)?;
-        self.update_border(hwnd)?;
+    // pub fn on_focus_change(&mut self, hwnd: isize) -> anyhow::Result<()> {
+    //     self.active_app = Some(hwnd);
+    //     self.sync_widget_and_border()?;
 
+    //     Ok(())
+    // }
+    pub fn sync_widget_and_border(&mut self, caller: &str) -> Result<()> {
+        if let Some(hwnd) = self.active_app {
+            let next_app = self
+                .apps
+                .iter()
+                .find(|a| hwnd == a.hwnd)
+                .ok_or(anyhow!("Failed to find app"))?;
+
+            log_debug!(
+                "Caller::",
+                caller,
+                "SYNC WIDGET AND BORDER FOR",
+                &next_app.name
+            );
+            self.widget_update_title(hwnd)?;
+            self.update_border(hwnd)?;
+        }
         Ok(())
     }
 }
@@ -356,8 +386,6 @@ impl AppContext {
         Ok(())
     }
     pub fn update_border(&self, hwnd: isize) -> Result<()> {
-        // self.update_topmost_border()?;
-        let active = self.get_active_app()?;
         let rect = WindowsAPI::get_rect(h!(hwnd));
         let is_maximized = WindowsAPI::is_maximized(hwnd);
         let (px, py) = WindowsAPI::get_rect_padding(hwnd);
@@ -369,44 +397,80 @@ impl AppContext {
         };
         let is_floating_app = self
             .store_appdata
-            .get(&active)
+            .get(&hwnd)
             .map(|f| f.floating)
             .unwrap_or(false);
-        let (thickness, radius, padding) = if is_floating_app {
-            (6.0, 8.0, -4)
+        let (thickness, radius, padding, color) = if is_floating_app {
+            (2.0, 5.0, 0, th().warning)
         } else {
-            (2.0, 5.0, 0)
+            (2.0, 5.0, 0, th().error)
         };
 
+        let (width, height, x, y) = (
+            rect.width - px - padding,
+            rect.height - py - padding,
+            rect.l + (px / 2) + padding / 2,
+            y + padding / 2,
+        );
+        log_debug!("W:", width, "H:", height, "X:", x, "Y:", y);
+
         let info = BorderInfo {
-            x: rect.l + (px / 2) + padding / 2,
-            y: y + padding / 2,
-            width: rect.width - px - padding,
-            height: rect.height - py - padding,
-            color: th().error,
+            x,
+            y,
+            width,
+            height,
+            color,
             thickness,
             radius,
             blacklist: self.config.blacklist.clone(),
             target: hwnd,
         };
 
-        let overlay = self.border_overlay.lock();
-        let overlay = overlay
-            .as_ref()
-            .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
+        let is_active_app = self.active_app.map(|a| a == hwnd).unwrap_or(false);
+        if is_active_app {
+            let overlay_hwnd = {
+                let overlay = self.border_overlay.lock();
+                let overlay = overlay
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
+                overlay.set_focus(info);
+                overlay.hwnd()
+            };
+            if self.is_floating_mode() {
+                WindowsAPI::set_top_most(overlay_hwnd);
+            } else {
+                let floating = self
+                    .store_appdata
+                    .iter()
+                    .flat_map(|(h, a)| if a.floating { Some(*h) } else { None })
+                    .collect::<Vec<_>>();
 
-        if hwnd == active {
-            overlay.set_focus(info);
-            if let Some(sd) = self.store_appdata.get(&hwnd) {
-                if sd.floating {
-                    WindowsAPI::set_top_most_after(overlay.hwnd(), h!(hwnd));
-                } else {
-                    WindowsAPI::set_top_most_after(h!(hwnd), overlay.hwnd());
-                }
+                let apps = self
+                    .get_workspace_apps()
+                    .iter()
+                    .filter(|a| !floating.contains(&a.hwnd))
+                    .flat_map(|a| Some(a.hwnd))
+                    .collect::<Vec<_>>();
+                let top_most = {
+                    let floating_hwnd = WindowsAPI::below_floating_app(&floating);
+                    if floating_hwnd == 0 {
+                        WindowsAPI::top_zorder_from_app(&apps)
+                    } else {
+                        floating_hwnd
+                    }
+                };
+                WindowsAPI::set_top_most_after(overlay_hwnd, h!(top_most));
             }
         }
 
         Ok(())
+    }
+
+    fn debug_app_by_hwnd(&self, tag: &str, hwnd: isize) {
+        if let Some(app) = self.apps.iter().find(|a| a.hwnd == hwnd) {
+            log_debug!("=".repeat(10), tag);
+            log_debug!(&app.name, dp!(app.rect));
+        }
     }
 
     pub fn widget_update_title(&mut self, hwnd: isize) -> anyhow::Result<()> {
@@ -490,9 +554,7 @@ impl AppContext {
                 let time = local.format("%H:%M %p").to_string();
                 let date = local.format("%a, %d %h %Y").to_string();
                 let usage = info.update();
-
                 let bg = col!(error);
-                let fg = col!(error_content);
                 {
                     let mut widget = user_widget.lock();
                     // Update clock
@@ -608,6 +670,30 @@ impl AppContext {
 // =============================================================================
 
 impl AppContext {
+    fn get_workspace_floating_apps(&self) -> Vec<&AppData> {
+        let active_workspace = self.get_active_workspace();
+        let active_monitor = self.get_active_monitor();
+
+        let workspace_hwnds: Vec<isize> = self
+            .store_appdata
+            .iter()
+            .filter_map(|(hwnd, data)| {
+                if data.workspace == active_workspace
+                    && data.monitor == active_monitor
+                    && data.floating
+                {
+                    Some(*hwnd)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        self.apps
+            .iter()
+            .filter(|app| workspace_hwnds.contains(&app.hwnd))
+            .collect()
+    }
     fn get_workspace_apps(&self) -> Vec<&AppData> {
         let active_workspace = self.get_active_workspace();
         let active_monitor = self.get_active_monitor();
@@ -630,52 +716,6 @@ impl AppContext {
             .collect()
     }
 
-    pub fn cycle_app(&mut self, direction: &Direction) {
-        if !self.initialized {
-            self.initialized = true;
-        }
-        if let Err(err) = self.cycle_app_impl(direction) {
-            log_error!("Cycle App", err);
-        }
-    }
-
-    fn cycle_app_impl(&mut self, direction: &Direction) -> Result<()> {
-        let active_app = self.get_active_app()?;
-        let filtered_apps = self.get_workspace_apps();
-
-        if filtered_apps.is_empty() {
-            return Ok(());
-        }
-
-        let current_pos = filtered_apps
-            .iter()
-            .position(|app| app.hwnd == active_app)
-            .unwrap_or(0);
-
-        let new_pos = match (direction, self.is_rtl()) {
-            (Direction::Prev, true) => {
-                if current_pos == 0 {
-                    filtered_apps.len() - 1
-                } else {
-                    current_pos - 1
-                }
-            }
-            (Direction::Next, true) => (current_pos + 1) % filtered_apps.len(),
-
-            (Direction::Prev, false) => (current_pos + 1) % filtered_apps.len(),
-            (Direction::Next, false) => {
-                if current_pos == 0 {
-                    filtered_apps.len() - 1
-                } else {
-                    current_pos - 1
-                }
-            }
-        };
-
-        self.active_app = Some(filtered_apps[new_pos].hwnd);
-        Ok(())
-    }
-
     fn move_app_to_last(&mut self, hwnd: isize) {
         if let Some(pos) = self.apps.iter().position(|a| a.hwnd == hwnd) {
             let app = self.apps.remove(pos);
@@ -688,21 +728,104 @@ impl AppContext {
             self.apps.insert(0, app);
         }
     }
+    fn get_all_floating_app(&self) -> Vec<isize> {
+        self.store_appdata
+            .iter()
+            .filter_map(|(hwnd, a)| if a.floating { Some(*hwnd) } else { None })
+            .collect()
+    }
+    pub fn swap_focus(&mut self) -> Result<()> {
+        let workspaces_apps = self.get_workspace_apps();
+        let floating_apps = self
+            .store_appdata
+            .iter()
+            .flat_map(|(hwnd, a)| if a.floating { Some(*hwnd) } else { None })
+            .collect::<Vec<_>>();
 
-    pub fn focus_app(&mut self, direction: &Direction) -> Result<()> {
-        let apps: Vec<AppData> = self.get_workspace_apps().into_iter().cloned().collect();
+        if !floating_apps.is_empty() {
+            if let Some(active_app) = self.active_app {
+                //floating app on focus
+                if floating_apps.contains(&active_app) {
+                    //we need to find non focus app
+                    // then focus it here
+                    if let Some(app) = workspaces_apps
+                        .iter()
+                        .filter(|a| !floating_apps.contains(&a.hwnd))
+                        .collect::<Vec<_>>()
+                        .get(0)
+                    {
+                        //we find the app
+                        // focus it
+                        let hwnd = app.hwnd;
+                        self.active_app = Some(hwnd);
+                        self.sync_widget_and_border("swap_focus::floating app");
+                    }
+                } else {
+                    let top_floating = WindowsAPI::top_zorder_from_app(&floating_apps);
+                    if let Some(app) = floating_apps.iter().find(|a| a == &&top_floating) {
+                        //we get first floating app
+                        //  focus it
+                        self.active_app = Some(*app);
+                        self.sync_widget_and_border("swap_focus::non floating app");
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+    pub fn cycle_floating_app(&mut self, direction: &Direction) -> Result<()> {
+        let floating_apps = self.get_all_floating_app();
+        let apps: Vec<AppData> = self
+            .get_workspace_apps()
+            .into_iter()
+            .filter(|a| floating_apps.contains(&a.hwnd))
+            .cloned()
+            .collect();
+        if apps.is_empty() {
+            return Ok(());
+        }
+
+        let current_active_app = {
+            let app = self.get_active_app().unwrap_or_default();
+            app
+        };
+        let current_index = apps
+            .iter()
+            .position(|app| app.hwnd == current_active_app)
+            .unwrap_or(0);
+        let new_index = (current_index + 1) % apps.len();
+        let hwnd = apps[new_index].hwnd;
+        WindowsAPI::focus_app(hwnd)?;
+        self.active_app = Some(hwnd);
+        self.sync_widget_and_border("cycle_floating_app")?;
+        Ok(())
+    }
+    pub fn cycle_focus_app(&mut self, direction: &Direction) -> Result<()> {
+        self.cycle_focus_app_impl(direction)?;
+        Ok(())
+    }
+    fn cycle_focus_app_impl(&mut self, direction: &Direction) -> Result<()> {
+        let floating_apps = self.get_all_floating_app();
+        //we need to skip all floating app here
+        let apps: Vec<AppData> = self
+            .get_workspace_apps()
+            .into_iter()
+            .filter(|a| !floating_apps.contains(&a.hwnd))
+            .cloned()
+            .collect();
 
         if apps.is_empty() {
             return Ok(());
         }
-        let active_app = {
+        let current_active_app = {
             let app = self.get_active_app().unwrap_or_default();
             app
         };
 
         let current_index = apps
             .iter()
-            .position(|app| app.hwnd == active_app)
+            .position(|app| app.hwnd == current_active_app)
             .unwrap_or(0);
 
         let new_index = match (direction, self.is_rtl()) {
@@ -712,30 +835,48 @@ impl AppContext {
             (Direction::Next, false) => current_index.saturating_add(1),
         }
         .clamp(0, apps.len() - 1);
-        let _new_app = &apps[new_index];
+
+        //this is new app go activate it
+        let hwnd = apps[new_index].hwnd;
+        let previous_hwnd = apps[current_index].hwnd;
+
+        // we need to set active app before this
+        WindowsAPI::focus_app(hwnd)?;
+        // self.active_app = Some(hwnd);
 
         let prev_counter = 2;
         let is_active_full = self
             .store_appdata
-            .get(&active_app)
+            .get(&hwnd)
             .is_some_and(|f| f.ratio == 1.0);
-
-        let mut hwnd = apps[new_index].hwnd;
+        let is_previous_full = self
+            .store_appdata
+            .get(&previous_hwnd)
+            .is_some_and(|f| f.ratio == 1.0);
 
         match (current_index, new_index) {
             // Wrapping backward: at 0, press prev -> bring last index to 0
             (0, 0) => {
-                hwnd = apps[apps.len() - 1].hwnd;
+                let hwnd = apps[apps.len() - 1].hwnd;
                 self.move_app_to_first(hwnd);
+                WindowsAPI::focus_app(hwnd)?;
+                // self.active_app = Some(hwnd);
             }
 
             // Crossing threshold or moving from fullscreen index 0
             (curr, new)
                 if (new == prev_counter && curr < prev_counter)
                     || (curr == 0 && new != 0 && is_active_full)
+                    || (curr == 0 && new != 0 && is_previous_full)
                     || (curr == 0 && new == prev_counter) =>
             {
-                self.move_app_to_last(apps[0].hwnd);
+                let target_hwnd = hwnd;
+                for idx in 0..new {
+                    self.move_app_to_last(apps[idx].hwnd);
+                }
+                // Update active_app and focus after moves are complete
+                WindowsAPI::focus_app(target_hwnd)?;
+                // self.active_app = Some(target_hwnd);
             }
 
             // Normal focus change - do nothing
@@ -743,8 +884,6 @@ impl AppContext {
         }
 
         self.apply_layout_in_workspace();
-        WindowsAPI::focus_app(hwnd)?;
-        self.on_focus_change(hwnd)?;
 
         Ok(())
     }
@@ -844,7 +983,9 @@ impl AppContext {
     }
     pub fn resize_width(&mut self, val: i32) -> anyhow::Result<()> {
         let app = self.floating_app()?;
+
         let target = AppRect::add_to_width(&app.rect, val);
+        log_debug!("WIDTH", target.width);
         let hwnd = app.hwnd;
         self.update_app_rect(app.hwnd, |md| {
             if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
@@ -857,7 +998,9 @@ impl AppContext {
     }
     pub fn resize_height(&mut self, val: i32) -> anyhow::Result<()> {
         let app = self.floating_app()?;
+
         let target = AppRect::add_to_height(&app.rect, val);
+        log_debug!("HEIGHT", target.width);
         let hwnd = app.hwnd;
         self.update_app_rect(hwnd, |md| {
             if let Err(err) = WindowsAPI::transform_to(hwnd, &target) {
@@ -958,9 +1101,9 @@ impl AppContext {
             .get(0)
             .ok_or(anyhow!("Cant find app in workspace"))?
             .hwnd;
-        log_error!(x, y);
         WindowsAPI::set_cursor_pos(x, y)?;
-        self.on_focus_change(app_hwnd)?;
+        self.active_app = Some(app_hwnd);
+        self.sync_widget_and_border("switch_monitor")?;
         Ok(())
     }
     pub fn is_rtl(&self) -> bool {
@@ -1003,6 +1146,8 @@ impl AppContext {
                 continue;
             }
 
+            WindowsAPI::to_bottom_order(app.hwnd);
+
             let (px, py) = WindowsAPI::get_rect_padding(app.hwnd);
             let (w, visible_w) = if apps.len() == 1 {
                 (monitor.width, monitor.width - px)
@@ -1027,6 +1172,8 @@ impl AppContext {
                 stored_app.rect = target_rect;
             }
         }
+
+        log_debug!("DONE RELAYOUT");
     }
 
     fn _transform_app(

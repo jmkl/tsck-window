@@ -167,7 +167,12 @@ impl WinManager {
                     E::SystemMinimizestart => {}
                     E::SystemForeground => {
                         if let Some(app) = win.get_app_info() {
-                            ctx.lock().on_focus_change(app.hwnd)?;
+                            {
+                                let mut guard = ctx.lock();
+                                guard.active_app = Some(app.hwnd);
+                                guard.sync_widget_and_border("SystemForeground")?;
+                            }
+                            {}
                         }
                     }
                     E::SystemMinimizeend => {}
