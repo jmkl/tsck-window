@@ -466,26 +466,87 @@ impl WindowsAPI {
         }
         true
     }
-    pub fn top_floating_app(apps: &[isize]) -> isize {
-        let topisize = || -> Option<isize> {
-            unsafe {
-                let set: HashSet<isize> = apps.iter().copied().collect();
+    pub fn top_zorder_from_app(apps: &[isize]) -> isize {
+        if apps.is_empty() {
+            return 0;
+        }
 
-                let mut hwnd = GetTopWindow(Some(h!(0))).ok()?;
+        unsafe {
+            let set: HashSet<isize> = apps.iter().copied().collect();
 
-                while !hwnd.is_invalid() {
-                    if set.contains(&(hwnd.0 as isize)) {
-                        return Some(hwnd.0 as isize);
-                    }
-                    hwnd = GetWindow(hwnd, GW_HWNDNEXT).ok()?;
+            // Start from the topmost window
+            let mut hwnd = match GetTopWindow(None) {
+                Ok(h) => h,
+                Err(_) => return 0,
+            };
+
+            loop {
+                if hwnd.is_invalid() {
+                    break;
                 }
 
-                None
-            }
-        };
-        topisize().unwrap_or(0)
-    }
+                let handle = hwnd.0 as isize;
 
+                // Check if this window is in our list
+                if set.contains(&handle) {
+                    return handle;
+                }
+
+                // Move to next window in Z-order
+                hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                    Ok(next) => next,
+                    Err(_) => break,
+                };
+            }
+
+            0
+        }
+    }
+    pub fn below_floating_app(apps: &[isize]) -> isize {
+        if apps.is_empty() {
+            return 0;
+        }
+
+        unsafe {
+            let mut remaining: HashSet<isize> = apps.iter().copied().collect();
+
+            // Start from the topmost window
+            let mut hwnd = match GetTopWindow(None) {
+                Ok(h) => h,
+                Err(_) => return 0,
+            };
+
+            loop {
+                if hwnd.is_invalid() {
+                    break;
+                }
+
+                let handle = hwnd.0 as isize;
+
+                // Check if this window is in our list
+                if remaining.contains(&handle) {
+                    remaining.remove(&handle);
+
+                    // Found all apps? Return the NEXT window
+                    if remaining.is_empty() {
+                        // Get the next window in Z-order
+                        return match GetWindow(hwnd, GW_HWNDNEXT) {
+                            Ok(next) if !next.is_invalid() => next.0 as isize,
+                            _ => 0,
+                        };
+                    }
+                }
+
+                // Move to next window in Z-order
+                hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                    Ok(next) => next,
+                    Err(_) => break,
+                };
+            }
+
+            0 // Didn't find all apps
+        }
+    }
     pub fn top_window_in_workspace(apps: &[&AppData]) -> Option<isize> {
         unsafe {
             let mut hwnd = GetTopWindow(Some(HWND(0 as *mut c_void))).ok()?;
@@ -724,19 +785,19 @@ impl WindowsAPI {
         let hwnd = h!(hwnd);
         Self::disable_rounded_corner(hwnd);
         _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
-        _ = unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                rect.l,
-                rect.t,
-                rect.width,
-                rect.height,
-                SWP_NOACTIVATE,
-            )
-        };
+        // _ = unsafe {
+        //     SetWindowPos(
+        //         hwnd,
+        //         None,
+        //         rect.l,
+        //         rect.t,
+        //         rect.width,
+        //         rect.height,
+        //         SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS | SWP_NOZORDER,
+        //     )
+        // };
 
-        // unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
+        unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
 
         Ok(())
     }

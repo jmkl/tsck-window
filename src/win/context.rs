@@ -216,12 +216,11 @@ impl AppContext {
 impl AppContext {
     // Fired while dragging the window
     pub fn on_location_change(&mut self, app: &AppData) -> anyhow::Result<()> {
-        let _ = self.update_border(app.hwnd);
         let maximize = WindowsAPI::is_window_maximized(h!(app.hwnd))?;
         if maximize {
             self.maximize_app(app.hwnd)?;
         }
-
+        let _ = self.update_border(app.hwnd);
         Ok(())
     }
 
@@ -236,6 +235,7 @@ impl AppContext {
             }
         }
         self.apply_layout_in_workspace();
+        self.sync_widget_and_border("move size end");
     }
 
     /// Fired when app gains focus
@@ -245,8 +245,20 @@ impl AppContext {
 
     //     Ok(())
     // }
-    pub fn sync_widget_and_border(&mut self) -> Result<()> {
+    pub fn sync_widget_and_border(&mut self, caller: &str) -> Result<()> {
         if let Some(hwnd) = self.active_app {
+            let next_app = self
+                .apps
+                .iter()
+                .find(|a| hwnd == a.hwnd)
+                .ok_or(anyhow!("Failed to find app"))?;
+
+            log_debug!(
+                "Caller::",
+                caller,
+                "SYNC WIDGET AND BORDER FOR",
+                &next_app.name
+            );
             self.widget_update_title(hwnd)?;
             self.update_border(hwnd)?;
         }
@@ -374,13 +386,6 @@ impl AppContext {
         Ok(())
     }
     pub fn update_border(&self, hwnd: isize) -> Result<()> {
-        let overlay = self.border_overlay.lock();
-        let overlay = overlay
-            .as_ref()
-            .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
-        // overlay.clear_focus();
-
-        let active = self.get_active_app()?;
         let rect = WindowsAPI::get_rect(h!(hwnd));
         let is_maximized = WindowsAPI::is_maximized(hwnd);
         let (px, py) = WindowsAPI::get_rect_padding(hwnd);
@@ -392,7 +397,7 @@ impl AppContext {
         };
         let is_floating_app = self
             .store_appdata
-            .get(&active)
+            .get(&hwnd)
             .map(|f| f.floating)
             .unwrap_or(false);
         let (thickness, radius, padding, color) = if is_floating_app {
@@ -401,11 +406,19 @@ impl AppContext {
             (2.0, 5.0, 0, th().error)
         };
 
+        let (width, height, x, y) = (
+            rect.width - px - padding,
+            rect.height - py - padding,
+            rect.l + (px / 2) + padding / 2,
+            y + padding / 2,
+        );
+        log_debug!("W:", width, "H:", height, "X:", x, "Y:", y);
+
         let info = BorderInfo {
-            x: rect.l + (px / 2) + padding / 2,
-            y: y + padding / 2,
-            width: rect.width - px - padding,
-            height: rect.height - py - padding,
+            x,
+            y,
+            width,
+            height,
             color,
             thickness,
             radius,
@@ -413,10 +426,18 @@ impl AppContext {
             target: hwnd,
         };
 
-        if hwnd == active {
-            overlay.set_focus(info);
+        let is_active_app = self.active_app.map(|a| a == hwnd).unwrap_or(false);
+        if is_active_app {
+            let overlay_hwnd = {
+                let overlay = self.border_overlay.lock();
+                let overlay = overlay
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Cannot find border overlay"))?;
+                overlay.set_focus(info);
+                overlay.hwnd()
+            };
             if self.is_floating_mode() {
-                WindowsAPI::set_top_most(overlay.hwnd());
+                WindowsAPI::set_top_most(overlay_hwnd);
             } else {
                 let floating = self
                     .store_appdata
@@ -427,15 +448,29 @@ impl AppContext {
                 let apps = self
                     .get_workspace_apps()
                     .iter()
-                    .filter(|a| floating.contains(&a.hwnd))
+                    .filter(|a| !floating.contains(&a.hwnd))
                     .flat_map(|a| Some(a.hwnd))
                     .collect::<Vec<_>>();
-                let top_most = WindowsAPI::top_floating_app(&apps);
-                WindowsAPI::set_top_most_after(overlay.hwnd(), h!(top_most));
+                let top_most = {
+                    let floating_hwnd = WindowsAPI::below_floating_app(&floating);
+                    if floating_hwnd == 0 {
+                        WindowsAPI::top_zorder_from_app(&apps)
+                    } else {
+                        floating_hwnd
+                    }
+                };
+                WindowsAPI::set_top_most_after(overlay_hwnd, h!(top_most));
             }
         }
 
         Ok(())
+    }
+
+    fn debug_app_by_hwnd(&self, tag: &str, hwnd: isize) {
+        if let Some(app) = self.apps.iter().find(|a| a.hwnd == hwnd) {
+            log_debug!("=".repeat(10), tag);
+            log_debug!(&app.name, dp!(app.rect));
+        }
     }
 
     pub fn widget_update_title(&mut self, hwnd: isize) -> anyhow::Result<()> {
@@ -723,15 +758,15 @@ impl AppContext {
                         // focus it
                         let hwnd = app.hwnd;
                         self.active_app = Some(hwnd);
-                        self.sync_widget_and_border();
+                        self.sync_widget_and_border("swap_focus::floating app");
                     }
                 } else {
-                    let top_floating = WindowsAPI::top_floating_app(&floating_apps);
+                    let top_floating = WindowsAPI::top_zorder_from_app(&floating_apps);
                     if let Some(app) = floating_apps.iter().find(|a| a == &&top_floating) {
                         //we get first floating app
                         //  focus it
                         self.active_app = Some(*app);
-                        self.sync_widget_and_border();
+                        self.sync_widget_and_border("swap_focus::non floating app");
                     }
                 }
             }
@@ -763,7 +798,7 @@ impl AppContext {
         let hwnd = apps[new_index].hwnd;
         WindowsAPI::focus_app(hwnd)?;
         self.active_app = Some(hwnd);
-        self.sync_widget_and_border()?;
+        self.sync_widget_and_border("cycle_floating_app")?;
         Ok(())
     }
     pub fn cycle_focus_app(&mut self, direction: &Direction) -> Result<()> {
@@ -807,8 +842,7 @@ impl AppContext {
 
         // we need to set active app before this
         WindowsAPI::focus_app(hwnd)?;
-        self.active_app = Some(hwnd);
-        self.sync_widget_and_border()?;
+        // self.active_app = Some(hwnd);
 
         let prev_counter = 2;
         let is_active_full = self
@@ -826,8 +860,7 @@ impl AppContext {
                 let hwnd = apps[apps.len() - 1].hwnd;
                 self.move_app_to_first(hwnd);
                 WindowsAPI::focus_app(hwnd)?;
-                self.active_app = Some(hwnd);
-                self.sync_widget_and_border()?;
+                // self.active_app = Some(hwnd);
             }
 
             // Crossing threshold or moving from fullscreen index 0
@@ -837,30 +870,18 @@ impl AppContext {
                     || (curr == 0 && new != 0 && is_previous_full)
                     || (curr == 0 && new == prev_counter) =>
             {
+                let target_hwnd = hwnd;
                 for idx in 0..new {
                     self.move_app_to_last(apps[idx].hwnd);
                 }
+                // Update active_app and focus after moves are complete
+                WindowsAPI::focus_app(target_hwnd)?;
+                // self.active_app = Some(target_hwnd);
             }
 
             // Normal focus change - do nothing
             _ => {}
         }
-        let next_app = self
-            .apps
-            .iter()
-            .find(|a| hwnd == a.hwnd)
-            .ok_or(anyhow!("Failed to find app"))?;
-
-        log_debug!(
-            "Active App",
-            &next_app.name,
-            "Cur Index:",
-            current_index,
-            "New Index:",
-            new_index,
-            "Is Active Full?",
-            is_active_full
-        );
 
         self.apply_layout_in_workspace();
 
@@ -1082,7 +1103,7 @@ impl AppContext {
             .hwnd;
         WindowsAPI::set_cursor_pos(x, y)?;
         self.active_app = Some(app_hwnd);
-        self.sync_widget_and_border()?;
+        self.sync_widget_and_border("switch_monitor")?;
         Ok(())
     }
     pub fn is_rtl(&self) -> bool {
@@ -1151,6 +1172,8 @@ impl AppContext {
                 stored_app.rect = target_rect;
             }
         }
+
+        log_debug!("DONE RELAYOUT");
     }
 
     fn _transform_app(
