@@ -724,7 +724,19 @@ impl WindowsAPI {
         let hwnd = h!(hwnd);
         Self::disable_rounded_corner(hwnd);
         _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
-        unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
+        _ = unsafe {
+            SetWindowPos(
+                hwnd,
+                None,
+                rect.l,
+                rect.t,
+                rect.width,
+                rect.height,
+                SWP_NOACTIVATE,
+            )
+        };
+
+        // unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
 
         Ok(())
     }
