@@ -1,6 +1,7 @@
 use flume::{Receiver, Sender};
 use ntek_derive::{NtekDes, NtekSer};
 use std::{
+    collections::HashSet,
     ffi::{OsString, c_void},
     os::windows::ffi::OsStringExt,
     str::FromStr,
@@ -25,7 +26,7 @@ use windows::{
     core::{BOOL, PWSTR},
 };
 
-use crate::{h, log_debug, log_error, win::event::WindowsEvent};
+use crate::{h, log_error, win::event::WindowsEvent};
 
 pub static WINEVENT_CHANNEL: OnceLock<(
     Sender<(WindowsEvent, WinApp)>,
@@ -63,7 +64,8 @@ pub struct AppData {
     pub class: String,
     pub rect: AppRect,
 }
-
+const MIN: i32 = 300;
+const MAX: i32 = 3000;
 #[derive(Debug, Clone, NtekSer, NtekDes)]
 pub struct AppRect {
     pub l: i32,
@@ -115,23 +117,29 @@ impl AppRect {
         }
     }
     pub fn add_to_width(r: &AppRect, inc: i32) -> Self {
+        let new_width = (r.width + inc).clamp(MIN, MAX);
+        let delta = new_width - r.width;
+
         Self {
             l: r.l,
             t: r.t,
-            r: r.r + inc,
+            r: r.r + delta,
             b: r.b,
-            width: inc + r.width,
+            width: new_width,
             height: r.height,
         }
     }
     pub fn add_to_height(r: &AppRect, inc: i32) -> Self {
+        let new_height = (r.height + inc).clamp(MIN, MAX);
+        let delta = new_height - r.height;
+
         Self {
             l: r.l,
             t: r.t,
             r: r.r,
-            b: r.b + inc,
+            b: r.b + delta,
             width: r.width,
-            height: r.height + inc,
+            height: new_height,
         }
     }
     pub fn xy(rect: &AppRect, x: i32, y: i32) -> Self {
@@ -426,13 +434,17 @@ impl WindowsAPI {
         }
     }
 
-    pub fn top_visible_window(blacklist: &Vec<String>) -> anyhow::Result<HWND> {
+    pub fn top_visible_window(
+        blacklist: &Vec<String>,
+        floating: Vec<isize>,
+    ) -> anyhow::Result<HWND> {
         let hwnd = unsafe { GetTopWindow(None)? };
         let mut next_hwnd = hwnd;
 
         while !next_hwnd.is_invalid() {
             if unsafe { IsWindowVisible(next_hwnd) } == TRUE
                 && !Self::is_blacklist(blacklist, next_hwnd)
+                && !floating.contains(&(next_hwnd.0 as isize))
             {
                 return Ok(next_hwnd);
             }
@@ -454,10 +466,26 @@ impl WindowsAPI {
         }
         true
     }
-    pub fn __top_window(blacklist: &Vec<String>) -> Option<HWND> {
-        let result = Self::top_visible_window(blacklist).ok();
-        result
+    pub fn top_floating_app(apps: &[isize]) -> isize {
+        let topisize = || -> Option<isize> {
+            unsafe {
+                let set: HashSet<isize> = apps.iter().copied().collect();
+
+                let mut hwnd = GetTopWindow(Some(h!(0))).ok()?;
+
+                while !hwnd.is_invalid() {
+                    if set.contains(&(hwnd.0 as isize)) {
+                        return Some(hwnd.0 as isize);
+                    }
+                    hwnd = GetWindow(hwnd, GW_HWNDNEXT).ok()?;
+                }
+
+                None
+            }
+        };
+        topisize().unwrap_or(0)
     }
+
     pub fn top_window_in_workspace(apps: &[&AppData]) -> Option<isize> {
         unsafe {
             let mut hwnd = GetTopWindow(Some(HWND(0 as *mut c_void))).ok()?;
@@ -732,35 +760,6 @@ impl WindowsAPI {
         }
     }
 
-    fn __________set_app_size_positionx(
-        hwnd: HWND,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        disable_rounded: bool,
-    ) {
-        if unsafe { IsWindow(Some(hwnd)) } == FALSE {
-            return;
-        }
-        if disable_rounded {
-            Self::disable_rounded_corner(hwnd);
-        }
-        _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
-        let w = (width).max(0);
-        let h = (height).max(0);
-        _ = unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                x,
-                y,
-                w,
-                h,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-            )
-        };
-    }
     pub fn is_window_maximized(hwnd: HWND) -> anyhow::Result<bool> {
         unsafe {
             let mut placement = WINDOWPLACEMENT::default();
@@ -853,28 +852,7 @@ impl WindowsAPI {
             )
         };
     }
-    // pub fn toggle_top_most(hwnd: HWND, parent_hwnd: HWND) -> bool {
-    //     let top_most = Self::is_top_most(hwnd);
-    //     let flag = if top_most {
-    //         HWND_NOTOPMOST
-    //     } else {
-    //         HWND_TOPMOST
-    //     };
-    //     unsafe {
-    //         _ = SetWindowPos(hwnd, Some(flag), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-    //         _ = SetWindowPos(
-    //             parent_hwnd,
-    //             Some(HWND_TOPMOST),
-    //             0,
-    //             0,
-    //             0,
-    //             0,
-    //             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-    //         );
-    //     }
-    //     !top_most
-    // }
     pub fn left_click() -> u32 {
         let inputs = [
             INPUT {

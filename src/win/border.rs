@@ -57,7 +57,6 @@ impl BorderOverlay {
     pub fn new(id: &str) -> anyhow::Result<Self> {
         let hinstance: HINSTANCE = unsafe { GetModuleHandleW(None)?.into() };
         let class_name_str = format!("Border-{}\0", id);
-        log_error!("REGISTERING CLASS:", &class_name_str);
         let class_name = class_name_str.encode_utf16().collect::<Vec<_>>();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -241,17 +240,17 @@ unsafe extern "system" fn wnd_proc(
                     let wy = info.y - t;
                     let ww = info.width + t * 2;
                     let wh = info.height + t * 2;
-                    let topwindow = WindowsAPI::top_window(&info.blacklist);
+                    // let topwindow = WindowsAPI::top_window(&info.blacklist);
                     _ = SetWindowPos(hwnd, None, wx, wy, ww, wh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-                    let _ = SetWindowPos(
-                        hwnd,
-                        topwindow,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                    );
+                    // let _ = SetWindowPos(
+                    //     hwnd,
+                    //     topwindow,
+                    //     0,
+                    //     0,
+                    //     0,
+                    //     0,
+                    //     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    // );
                     let _ = data.render_target.Resize(&D2D_SIZE_U {
                         width: ww as u32,
                         height: wh as u32,
