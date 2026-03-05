@@ -8,7 +8,7 @@ workspaces = [
 
 
 blacklist = [
-    "wezterm-gui",
+   # "wezterm-gui",
     "tsck",
     "TextInputHost",
     "msedgewebview2",
@@ -28,14 +28,16 @@ hotkeys = {
     M-t               : Func::ToggleFloating,
     M-f               : Func::CycleSizeFactor,
     M-del             : Func::SwapFocus,
+    M-minus           : Func::AdjustAppWidth(-50),
+    M-equal           : Func::AdjustAppWidth(50),
     M-up              : Hybrid(SwapFocus,           SwapFocus                 ),
     M-down            : Hybrid(SwapFocus,           SwapFocus                 ),
     M-left            : Hybrid(CycleFocusApp(Prev), CycleFloatingApp(Prev)    ),
     M-right           : Hybrid(CycleFocusApp(Next), CycleFloatingApp(Prev)    ),
     M-C-up            : Hybrid(Null,                Null                      ),
     M-C-down          : Hybrid(Null,                Null                      ),
-    M-C-left          : Hybrid(Null,                Null                      ),
-    M-C-right         : Hybrid(Null,                Null                      ),
+    M-C-left          : Hybrid(MoveAppToMonitor(Prev), Null                   ),
+    M-C-right         : Hybrid(MoveAppToMonitor(Next), Null                   ),
     M-S-up            : Hybrid(Null,                TransformFloatingY(-50)   ),
     M-S-down          : Hybrid(Null,                TransformFloatingY(50)    ),
     M-S-left          : Hybrid(MoveApp(Prev),       TransformFloatingX(-50)   ),

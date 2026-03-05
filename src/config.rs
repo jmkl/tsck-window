@@ -4,10 +4,7 @@ use ntek::Serialize;
 use ntek_derive::{NtekDes, NtekSer};
 use tsck_kee::{Kee, TKeePair};
 
-use crate::{
-    dp, log_error,
-    win::context::{AppContext, Shared},
-};
+use crate::{dp, log_error, windows_handler::WindowsHandler, windows_manager::Shared};
 
 #[derive(Debug, NtekDes, NtekSer)]
 pub enum Direction {
@@ -31,7 +28,6 @@ pub enum AppFunction {
     Null,
     Debug,
     CycleSizeFactor,
-    FillScreen,
     ToggleFloating,
     SwitchMonitor,
     CloseApp,
@@ -58,7 +54,7 @@ pub struct WinNtek {
     pub size_factor: Vec<f32>,
 }
 
-pub fn spawn_commandline(ctx: Shared<AppContext>) {
+pub fn spawn_commandline(ctx: Shared<WindowsHandler>) {
     let ctx = ctx.clone();
     thread::spawn(move || -> anyhow::Result<()> {
         loop {
@@ -68,13 +64,13 @@ pub fn spawn_commandline(ctx: Shared<AppContext>) {
 
             match input.trim() {
                 "list" => {
-                    ctx.lock().debug_list_app()?;
+                    // ctx.lock().debug_list_app()?;
                 }
                 "move" => {
-                    ctx.lock().debug_move()?;
+                    // ctx.lock().debug_move()?;
                 }
                 "reset" => {
-                    ctx.lock().debug_reset()?;
+                    // ctx.lock().debug_reset()?;
                 }
                 "quit" => {
                     std::process::exit(0);
@@ -91,7 +87,7 @@ reset
         }
     });
 }
-pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<AppContext>) {
+pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<WindowsHandler>) {
     let mut k = Kee::new(false);
     let kees: Vec<TKeePair> = ntek
         .hotkeys
@@ -145,7 +141,7 @@ pub fn spawn_hotkee(ntek: Arc<WinNtek>, ctx: Shared<AppContext>) {
     .run(kees);
 }
 impl FloatingFunction {
-    pub fn pipe(&self, ctx: Shared<AppContext>, _: Arc<WinNtek>) -> anyhow::Result<()> {
+    pub fn pipe(&self, ctx: Shared<WindowsHandler>, _: Arc<WinNtek>) -> anyhow::Result<()> {
         match self {
             FloatingFunction::ResizeFloatingW(value) => {
                 ctx.lock().resize_width(*value)?;
@@ -171,26 +167,24 @@ impl FloatingFunction {
     }
 }
 impl AppFunction {
-    pub fn pipe(&self, ctx: Shared<AppContext>, _: Arc<WinNtek>) -> anyhow::Result<()> {
+    pub fn pipe(&self, ctx: Shared<WindowsHandler>, _: Arc<WinNtek>) -> anyhow::Result<()> {
         match self {
             AppFunction::Debug => {
-                ctx.lock().apply_layout_in_workspace();
+                ctx.lock().test_debug()?;
             }
+
             AppFunction::CycleSizeFactor => {
                 ctx.lock().cycle_size_factor()?;
             }
-            AppFunction::FillScreen => {
-                ctx.lock().fill_screen()?;
-            }
             AppFunction::CycleWorkspace(direction) => {
-                ctx.lock().cycle_workspace(direction);
+                ctx.lock().cycle_workspace(direction)?;
             }
 
             AppFunction::MoveAppToWorkspace(direction) => {
-                ctx.lock().move_app_to_workspace(direction);
+                ctx.lock().move_app_to_workspace(direction)?;
             }
             AppFunction::MoveAppToMonitor(direction) => {
-                ctx.lock().move_app_to_workspace(direction);
+                ctx.lock().move_app_to_monitor(direction)?;
             }
             AppFunction::MoveApp(direction) => {
                 ctx.lock().move_app(direction)?;
@@ -205,11 +199,10 @@ impl AppFunction {
                 crate::log_warn!("AppFunction::CloseApp");
             }
             AppFunction::AdjustAppWidth(value) => {
-                crate::log_warn!("AppFunction::AdjustAppWidth", value)
+                ctx.lock().adjust_app_width(*value)?;
             }
             AppFunction::SwitchMonitor => {
                 ctx.lock().switch_monitor()?;
-                crate::log_warn!("AppFunction::AdjustAppWidth")
             }
             AppFunction::Null => {}
 

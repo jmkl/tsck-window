@@ -201,8 +201,33 @@ impl AppContext {
     }
 
     pub fn remove_app(&mut self, hwnd: isize) -> anyhow::Result<()> {
+        log_debug!(
+            "REMOVING APP",
+            hwnd,
+            "Before:",
+            self.apps.len(),
+            self.store_appdata.len()
+        );
+
         self.apps.retain(|a| a.hwnd != hwnd);
         self.store_appdata.remove(&hwnd);
+
+        // CLEANUP: Remove any dead windows that might have slipped through
+        let dead_hwnds: Vec<isize> = self
+            .apps
+            .iter()
+            .filter(|a| !WindowsAPI::is_window(h!(a.hwnd)))
+            .map(|a| a.hwnd)
+            .collect();
+
+        for dead_hwnd in dead_hwnds {
+            log_debug!("CLEANING UP DEAD WINDOW", dead_hwnd);
+            self.apps.retain(|a| a.hwnd != dead_hwnd);
+            self.store_appdata.remove(&dead_hwnd);
+        }
+
+        log_debug!("After:", self.apps.len(), self.store_appdata.len());
+
         self.clear_selection()?;
         self.apply_layout_in_workspace();
         Ok(())
@@ -918,6 +943,13 @@ impl AppContext {
 // =============================================================================
 
 impl AppContext {
+    pub fn fill_screen(&mut self) -> Result<()> {
+        let active_monitor = self.get_active_monitor();
+        let monitor = &self.monitors[active_monitor];
+        let active_app = self.get_active_app()?;
+
+        Ok(())
+    }
     pub fn cycle_size_factor(&mut self) -> Result<()> {
         let active_monitor = self.get_active_monitor();
         let monitor = &self.monitors[active_monitor];
@@ -1145,7 +1177,7 @@ impl AppContext {
             {
                 continue;
             }
-
+            log_debug!("RELAYOUT", &app.name, dp!(app.rect));
             WindowsAPI::to_bottom_order(app.hwnd);
 
             let (px, py) = WindowsAPI::get_rect_padding(app.hwnd);

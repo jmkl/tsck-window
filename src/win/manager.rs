@@ -1,10 +1,10 @@
-use crate::log_error;
 use crate::win::border::BorderOverlay;
 use crate::win::config::{WinNtek, spawn_commandline, spawn_hotkee};
 use crate::win::event::WindowsEvent as E;
 use crate::win::statusbar::StatusbarWindow;
 use crate::win::widget::Workspace;
 use crate::win::winapi::{self, WindowsAPI};
+use crate::{log_debug, log_error};
 use ntek;
 use std::sync::Arc;
 use std::time::Duration;
@@ -178,6 +178,7 @@ impl WinManager {
                     E::SystemMinimizeend => {}
                     E::ObjectDestroy => {
                         if let Some(app) = win.get_app_info() {
+                            log_debug!("DESTORYING ", &app.name);
                             ctx.lock().remove_app(app.hwnd)?;
                         }
                     }

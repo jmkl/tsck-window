@@ -304,7 +304,12 @@ impl WindowsAPI {
             mi.rcMonitor
         }
     }
-
+    pub fn window_above(hwnd: HWND) -> Option<isize> {
+        unsafe {
+            let above = GetWindow(hwnd, GW_HWNDPREV).ok()?;
+            Some(above.0 as isize)
+        }
+    }
     pub(crate) fn get_process_path(hwnd: HWND) -> Option<String> {
         unsafe {
             let mut process_id: u32 = 0;
@@ -785,19 +790,19 @@ impl WindowsAPI {
         let hwnd = h!(hwnd);
         Self::disable_rounded_corner(hwnd);
         _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
-        // _ = unsafe {
-        //     SetWindowPos(
-        //         hwnd,
-        //         None,
-        //         rect.l,
-        //         rect.t,
-        //         rect.width,
-        //         rect.height,
-        //         SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS | SWP_NOZORDER,
-        //     )
-        // };
+        _ = unsafe {
+            SetWindowPos(
+                hwnd,
+                None,
+                rect.l,
+                rect.t,
+                rect.width,
+                rect.height,
+                SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS | SWP_NOZORDER,
+            )
+        };
 
-        unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
+        // unsafe { MoveWindow(hwnd, rect.l, rect.t, rect.width, rect.height, true)? };
 
         Ok(())
     }
@@ -960,5 +965,8 @@ impl WindowsAPI {
     }
     pub fn set_cursor_pos(x: i32, y: i32) -> anyhow::Result<()> {
         unsafe { Ok(SetCursorPos(x, y)?) }
+    }
+    pub fn is_window(hwnd: HWND) -> bool {
+        unsafe { IsWindow(Some(hwnd)).as_bool() }
     }
 }

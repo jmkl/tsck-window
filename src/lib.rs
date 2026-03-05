@@ -1,2 +1,17 @@
+mod border_manager;
+mod config;
 pub mod macros;
+mod monitors_manager;
+pub mod sc;
+mod statusbar_manager;
+mod utils;
+mod widget_manager;
 pub mod win;
+mod windows_api;
+mod windows_handler;
+mod windows_manager;
+pub use config::WinNtek;
+pub use monitors_manager::{MonitorInfo, MonitorManager};
+pub use utils::deadlock_detector;
+pub use windows_api::{WindowsAppData, WindowsEvent};
+pub use windows_manager::WindowsManager;

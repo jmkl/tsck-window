@@ -241,7 +241,15 @@ unsafe extern "system" fn wnd_proc(
                     let ww = info.width + t * 2;
                     let wh = info.height + t * 2;
                     // let topwindow = WindowsAPI::top_window(&info.blacklist);
-                    _ = SetWindowPos(hwnd, None, wx, wy, ww, wh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        wx,
+                        wy,
+                        ww,
+                        wh,
+                        SWP_NOACTIVATE | SWP_NOREDRAW | SWP_SHOWWINDOW | SWP_NOSENDCHANGING,
+                    );
                     // let _ = SetWindowPos(
                     //     hwnd,
                     //     topwindow,

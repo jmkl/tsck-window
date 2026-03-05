@@ -10,7 +10,7 @@ chrono.workspace = true
 anyhow = "1.0"
 flume = "0.11.1"
 once_cell = "1.21.3"
-parking_lot = "0.12.5"
+parking_lot = {version="0.12.5",features=["deadlock_detection"]}
 lazy_static = "1.5.0"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",

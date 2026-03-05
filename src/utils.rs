@@ -1,4 +1,50 @@
+use parking_lot::deadlock;
+use std::{thread, time::Duration};
 use sysinfo::{Networks, System};
+
+pub fn deadlock_detector() {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                continue;
+            }
+
+            println!("{} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                println!("Deadlock #{}", i);
+                for t in threads {
+                    println!("Thread Id {:#?}", t.thread_id());
+                    println!("{:#?}", t.backtrace());
+                }
+            }
+        }
+    });
+}
+
+pub fn truncate(s: &str, max_len: usize) -> String {
+    if s.chars().count() > max_len {
+        let truncated: String = s.chars().take(max_len - 1).collect();
+        format!("{truncated}...")
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn write_to_file(file_name: &str, content: &str) -> anyhow::Result<()> {
+    let log_dir = std::path::Path::new("log");
+    if !log_dir.exists() {
+        std::fs::create_dir_all(log_dir)?;
+    }
+    std::fs::write(std::path::Path::new(log_dir).join(file_name), content)?;
+    Ok(())
+}
+
+//==============================================================================//
+// tag         : Sys
+// description :
+//==============================================================================//
 
 pub struct SystemUsage {
     pub cpu_percent: f64,
@@ -32,6 +78,7 @@ pub fn get_system_usage(sys: &mut System, networks: &mut Networks) -> SystemUsag
     // received()/transmitted() returns bytes since last refresh (1 second interval)
     let download_kbps = total_rx as f64 / 1024.0;
     let upload_kbps = total_tx as f64 / 1024.0;
+
     SystemUsage {
         cpu_percent: sys.global_cpu_usage() as f64,
         ram_used_gb: ram_used / 1_073_741_824.0,
@@ -57,27 +104,5 @@ impl SystemInfo {
 
     pub fn update(&mut self) -> SystemUsage {
         get_system_usage(&mut self.sys, &mut self.networks)
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_sysinfo() {
-        let mut info = SystemInfo::new();
-
-        loop {
-            let usage = info.update();
-            println!(
-                "CPU: {:.1}% | RAM: {:.2}/{:.2} GB ({:.1}%) | ↓ {} ↑ {}",
-                usage.cpu_percent,
-                usage.ram_used_gb,
-                usage.ram_total_gb,
-                usage.ram_percent,
-                format_speed(usage.net_download),
-                format_speed(usage.net_upload),
-            );
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
     }
 }
